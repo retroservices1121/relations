@@ -51,6 +51,8 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
   const [renderingFinal, setRenderingFinal] = useState(false);
   const [finalUrl, setFinalUrl] = useState("");
   const [finalError, setFinalError] = useState("");
+  const [finalActionError, setFinalActionError] = useState("");
+  const [sharingFinal, setSharingFinal] = useState(false);
   const overlayTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
 
   const projectStorageKey = `relations:project:${episode.id}`;
@@ -225,6 +227,7 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
   function clearSavedFinal() {
     setFinalUrl("");
     setFinalError("");
+    setFinalActionError("");
     void fetch("/api/project", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -305,6 +308,7 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
 
     setRenderingFinal(true);
     setFinalError("");
+    setFinalActionError("");
     try {
       const scenes = episode.scenes.map((scene, index) => ({
         videoUrl: sceneStates[index].videoUrl,
@@ -325,6 +329,37 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
       setFinalError(error instanceof Error ? error.message : "Final render failed");
     } finally {
       setRenderingFinal(false);
+    }
+  }
+
+  function finalDownloadUrl() {
+    return `/api/download-video?url=${encodeURIComponent(finalUrl)}&filename=${encodeURIComponent(`${episode.id}.mp4`)}`;
+  }
+
+  async function shareFinalVideo() {
+    if (!finalUrl) return;
+    setSharingFinal(true);
+    setFinalActionError("");
+    try {
+      const response = await fetch(finalDownloadUrl(), { cache: "no-store" });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || "Could not prepare the video for sharing.");
+      }
+      const blob = await response.blob();
+      const file = new File([blob], `${episode.id}.mp4`, { type: "video/mp4" });
+      const shareData = { files: [file], title: episode.title, text: episode.title };
+
+      if (!navigator.share || (navigator.canShare && !navigator.canShare(shareData))) {
+        throw new Error("Native video sharing is not supported in this browser. Use Download MP4, then save the video to Photos or Gallery.");
+      }
+
+      await navigator.share(shareData);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      setFinalActionError(error instanceof Error ? error.message : "Could not share the final video.");
+    } finally {
+      setSharingFinal(false);
     }
   }
 
@@ -450,7 +485,13 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
           <div className="finalResult">
             <p className="savedText">✓ Final episode saved permanently to R2 + Railway Postgres</p>
             <video className="finalVideo" src={finalUrl} controls playsInline />
-            <a className="downloadLink" href={finalUrl} target="_blank" rel="noreferrer">Open final MP4</a>
+            <p className="statusText">Exports are H.264/AAC MP4 with mobile-compatible yuv420p video. On a phone, Share Video opens the native share sheet so you can save to Photos/Gallery or send it to a social app.</p>
+            <button disabled={sharingFinal} onClick={() => void shareFinalVideo()}>
+              {sharingFinal ? "Preparing Video…" : "Share Video"}
+            </button>
+            <a className="downloadLink" href={finalDownloadUrl()} download={`${episode.id}.mp4`}>Download MP4</a>
+            <a className="downloadLink" href={finalUrl} target="_blank" rel="noreferrer">Open R2 Copy</a>
+            {finalActionError && <p className="errorText">{finalActionError}</p>}
           </div>
         )}
       </section>
