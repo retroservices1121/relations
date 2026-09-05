@@ -3,6 +3,18 @@ import { fal } from "@fal-ai/client";
 
 fal.config({ credentials: process.env.FAL_KEY });
 
+const LOCKED_VISUAL_DIRECTION = `FINAL VISUAL DIRECTION OVERRIDES ANY CONFLICTING STYLE LANGUAGE BELOW. Joe and Danda are both adults in their early 40s. @Image1 is Joe: preserve the approved reference exactly, including his short dark hair, full neatly trimmed dark beard, face, casual clothing identity and average slightly stocky everyday-dad build. Joe must never become muscular, athletic, broad-chested or physically defined. @Image2 is Danda: preserve the approved reference exactly, including her long dark brown hair with warm highlights, face, casual clothing identity and normal adult proportions. Danda is only moderately shorter than Joe; standing together, the top of her head is approximately around Joe's eye or eyebrow level. Never make her tiny, miniature, child-sized or disproportionately small.
+
+VISUAL STYLE IS STRICTLY LOCKED: simple hand-drawn 2D internet cartoon comedy. Thick clean black outlines around characters and important props. Flat solid color fills. Minimal simple cel shading only when necessary. Slightly oversized cartoon heads, large expressive eyes, simple rounded facial features, simplified hands and feet, intentionally basic anatomy, readable silhouettes and a playful drawn-cartoon appearance. Keep the same simple character construction from the approved reference sheets in every frame.
+
+BACKGROUND STYLE IS LOCKED: simple functional 2D backgrounds with large flat color areas and only the furniture, objects and environmental details needed for the joke. Backgrounds must not become detailed, realistic, painterly or cinematic.
+
+ANIMATION STYLE IS LOCKED: limited-animation 2D social-media cartoon. Snappy pose changes, held poses when useful, exaggerated facial reactions, squash-and-stretch, quick physical gags and clear readable acting. Favor simple front-facing, side and three-quarter compositions. Camera movement should be minimal and functional, not cinematic.
+
+ABSOLUTELY AVOID: 3D or CGI appearance, Pixar-like rendering, polished animated-feature look, glossy digital illustration, realistic skin, pores, realistic hair strands, realistic fabric, complex textures, realistic lighting, dramatic shadows, rim lighting, volumetric lighting, depth of field, bokeh, lens effects, cinematic color grading, painterly rendering, anime rendering, photorealism, hyper-detailed environments or elaborate camera moves. The result should look like a funny flat 2D web cartoon, not an expensive animated movie.
+
+AUDIO FORMAT IS LOCKED: NO SPOKEN DIALOGUE. NO TALKING. NO LIP-SYNCED SPEECH. Characters communicate through expressions, gestures, body language and physical comedy. Generate natural environmental audio and playful cartoon sound effects appropriate to visible action. Do not generate captions, subtitles, speech bubbles, signs, labels, written dialogue or other on-screen text. Text overlays are added later in Studio.`;
+
 function endpointFor(model: string) {
   return model === "seedance-standard"
     ? "bytedance/seedance-2.0/reference-to-video"
@@ -67,10 +79,11 @@ export async function POST(request: Request) {
 
     const endpoint = endpointFor(model);
     const safeDuration = Math.max(4, Math.min(15, Number(duration) || 5));
+    const lockedPrompt = `${LOCKED_VISUAL_DIRECTION}\n\nSCENE INSTRUCTIONS:\n${prompt}`;
 
     const submission = await fal.queue.submit(endpoint, {
       input: {
-        prompt,
+        prompt: lockedPrompt,
         image_urls: imageUrls.slice(0, 9),
         resolution: "720p",
         duration: String(safeDuration),
