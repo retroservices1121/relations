@@ -11,14 +11,14 @@ export async function GET() {
     }
 
     const response = await fetch("https://api.fal.ai/v1/account/billing?expand=credits", {
-      headers: { Authorization: `Key ${key}` },
+      headers: { Authorization: key },
       cache: "no-store",
     });
 
     const data = await response.json();
     if (!response.ok) {
       return NextResponse.json(
-        { error: data?.detail || data?.message || "Could not load fal credit balance." },
+        { error: data?.detail || data?.message || `Could not load fal credit balance (${response.status}).` },
         { status: response.status },
       );
     }
