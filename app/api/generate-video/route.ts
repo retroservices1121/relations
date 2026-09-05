@@ -9,6 +9,22 @@ function endpointFor(model: string) {
     : "bytedance/seedance-2.0/fast/reference-to-video";
 }
 
+function readableError(error: unknown, fallback: string) {
+  if (error && typeof error === "object") {
+    const maybe = error as { message?: string; body?: unknown; response?: { data?: unknown } };
+    const details = maybe.body ?? maybe.response?.data;
+    if (details) {
+      try {
+        return `${maybe.message || fallback}: ${JSON.stringify(details)}`;
+      } catch {
+        return maybe.message || fallback;
+      }
+    }
+    if (maybe.message) return maybe.message;
+  }
+  return fallback;
+}
+
 export async function POST(request: Request) {
   try {
     if (!process.env.FAL_KEY) {
@@ -41,14 +57,9 @@ export async function POST(request: Request) {
       },
     });
 
-    return NextResponse.json({
-      requestId: submission.request_id,
-      model,
-      status: "queued",
-    });
+    return NextResponse.json({ requestId: submission.request_id, model, status: "queued" });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Video generation failed.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: readableError(error, "Video generation failed.") }, { status: 500 });
   }
 }
 
@@ -67,17 +78,10 @@ export async function GET(request: Request) {
     }
 
     const endpoint = endpointFor(model);
-    const status = await fal.queue.status(endpoint, {
-      requestId,
-      logs: true,
-    });
+    const status = await fal.queue.status(endpoint, { requestId, logs: true });
 
     if (status.status !== "COMPLETED") {
-      return NextResponse.json({
-        requestId,
-        status: status.status,
-        logs: "logs" in status ? status.logs : undefined,
-      });
+      return NextResponse.json({ requestId, status: status.status, logs: "logs" in status ? status.logs : undefined });
     }
 
     const result = await fal.queue.result(endpoint, { requestId });
@@ -87,14 +91,8 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Generation completed but no video URL was returned." }, { status: 502 });
     }
 
-    return NextResponse.json({
-      requestId,
-      status: "COMPLETED",
-      videoUrl: data.video.url,
-      seed: data.seed,
-    });
+    return NextResponse.json({ requestId, status: "COMPLETED", videoUrl: data.video.url, seed: data.seed });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Could not check video generation status.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: readableError(error, "Could not check video generation status.") }, { status: 500 });
   }
 }
