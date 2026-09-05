@@ -14,7 +14,8 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const JOE_STORAGE_KEY = "relations:character:joe";
 const DANDA_STORAGE_KEY = "relations:character:danda";
 
-function parseTimedCaptions(text: string, fallbackStart: number, fallbackEnd: number): TimedCaption[] {
+function parseTimedCaptions(value: unknown, fallbackStart: number, fallbackEnd: number): TimedCaption[] {
+  const text = typeof value === "string" ? value : "";
   const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
   const parsed = lines.map((line) => {
     const match = line.match(/^\[(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\]\s*(.+)$/);
@@ -51,6 +52,21 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
     return { text: scene.caption || "", position: "bottom", start: scene.captionStart ?? 0, end: scene.captionEnd ?? scene.duration };
   }
 
+  function normalizeOverlay(index: number, value: unknown): OverlayConfig {
+    const defaults = defaultOverlay(index);
+    if (!value || typeof value !== "object") return defaults;
+    const candidate = value as Partial<OverlayConfig>;
+    const position: OverlayPosition = candidate.position === "top" || candidate.position === "middle" || candidate.position === "bottom" ? candidate.position : defaults.position;
+    const start = Number.isFinite(Number(candidate.start)) ? Number(candidate.start) : defaults.start;
+    const end = Number.isFinite(Number(candidate.end)) ? Number(candidate.end) : defaults.end;
+    return {
+      text: typeof candidate.text === "string" ? candidate.text : defaults.text,
+      position,
+      start,
+      end,
+    };
+  }
+
   async function loadBalance() {
     try {
       const response = await fetch("/api/fal-balance", { cache: "no-store" });
@@ -67,7 +83,12 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
     let localStates: Record<number, SceneState> = {}; let localOverlays: Record<number, OverlayConfig> = defaultOverlays; let localFinalUrl = "";
     try {
       const saved = localStorage.getItem(projectStorageKey);
-      if (saved) { const project = JSON.parse(saved); localStates = project.sceneStates || {}; localOverlays = { ...defaultOverlays, ...(project.overlays || {}) }; localFinalUrl = project.finalUrl || ""; }
+      if (saved) {
+        const project = JSON.parse(saved) as { sceneStates?: Record<number, SceneState>; overlays?: Record<number, unknown>; finalUrl?: string };
+        localStates = project.sceneStates || {};
+        localOverlays = Object.fromEntries(episode.scenes.map((_, index) => [index, normalizeOverlay(index, project.overlays?.[index])]));
+        localFinalUrl = typeof project.finalUrl === "string" ? project.finalUrl : "";
+      }
     } catch {}
     setSceneStates(localStates); setOverlays(localOverlays); setFinalUrl(localFinalUrl);
     void (async () => {
@@ -126,7 +147,7 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
   }
 
   function updateOverlay(index: number, patch: Partial<OverlayConfig>) {
-    const current = overlays[index] || defaultOverlay(index); const next = { ...current, ...patch }; setOverlays((prev) => ({ ...prev, [index]: next })); clearSavedFinal();
+    const current = normalizeOverlay(index, overlays[index]); const next = { ...current, ...patch }; setOverlays((prev) => ({ ...prev, [index]: next })); clearSavedFinal();
     if (overlayTimers.current[index]) clearTimeout(overlayTimers.current[index]);
     overlayTimers.current[index] = setTimeout(() => { void fetch("/api/project", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ episodeId: episode.id, sceneIndex: index, ...next }) }).then(async (response) => { if (!response.ok) { const data = await response.json().catch(() => ({})); throw new Error(data.error || "Could not save overlay to Railway Postgres"); } setStorageError(""); }).catch((error) => setStorageError(error instanceof Error ? error.message : "Could not save overlay to Railway Postgres")); }, 500);
   }
@@ -136,7 +157,7 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
   async function buildFinalVideo() {
     if (!allScenesReady) { setFinalError("Generate and permanently save every scene before building the final episode."); return; }
     setRenderingFinal(true); setFinalError(""); setFinalActionError("");
-    try { const scenes = episode.scenes.map((scene, index) => ({ videoUrl: sceneStates[index].videoUrl, text: overlays[index]?.text || "", position: overlays[index]?.position || "bottom", start: overlays[index]?.start ?? scene.captionStart ?? 0, end: overlays[index]?.end ?? scene.captionEnd ?? scene.duration })); const response = await fetch("/api/render-episode", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ episodeId: episode.id, scenes }) }); const data = await response.json(); if (!response.ok) throw new Error(data.error || "Final render failed"); setFinalUrl(data.url); }
+    try { const scenes = episode.scenes.map((scene, index) => { const overlay = normalizeOverlay(index, overlays[index]); return { videoUrl: sceneStates[index].videoUrl, text: overlay.text, position: overlay.position, start: overlay.start, end: overlay.end }; }); const response = await fetch("/api/render-episode", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ episodeId: episode.id, scenes }) }); const data = await response.json(); if (!response.ok) throw new Error(data.error || "Final render failed"); setFinalUrl(data.url); }
     catch (error) { setFinalError(error instanceof Error ? error.message : "Final render failed"); } finally { setRenderingFinal(false); }
   }
 
@@ -155,7 +176,7 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
       <div className="characterRef"><label>Danda cartoon reference {dandaUrl && "✓ Locked"}</label>{dandaUrl && <img className="referenceThumb" src={dandaUrl} alt="Danda cartoon reference" />}<label className="uploadButton">{uploading === "danda" ? "Uploading Danda…" : dandaUrl ? "Replace Danda Cartoon" : "Upload Danda Cartoon"}<input type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading !== null} onChange={(e) => uploadReference("danda", e.target.files?.[0])} /></label><input value={dandaUrl} onChange={(e) => persistReference("danda", e.target.value)} placeholder="Or paste the approved Danda cartoon URL" /></div></div></section>
 
     <div className="sceneList">{episode.scenes.map((scene, index) => {
-      const state = sceneStates[index] || { status: "idle" }; const overlay = overlays[index] || defaultOverlay(index); const timed = parseTimedCaptions(overlay.text, overlay.start, overlay.end); const now = sceneTimes[index] ?? 0; const visibleCaption = timed.find((caption) => now >= caption.start && now <= caption.end);
+      const state = sceneStates[index] || { status: "idle" }; const overlay = normalizeOverlay(index, overlays[index]); const timed = parseTimedCaptions(overlay.text, overlay.start, overlay.end); const now = sceneTimes[index] ?? 0; const visibleCaption = timed.find((caption) => now >= caption.start && now <= caption.end);
       return <article className="sceneCard" key={index}><div className="sceneMeta"><span>SCENE {index + 1}</span><b>{scene.duration}s</b></div><h3>{scene.prompt}</h3>
         {state.videoUrl && <div className="videoPreviewWrap"><video className="sceneVideo" src={state.videoUrl} controls playsInline onTimeUpdate={(e) => setSceneTimes((prev) => ({ ...prev, [index]: e.currentTarget.currentTime }))} onSeeked={(e) => setSceneTimes((prev) => ({ ...prev, [index]: e.currentTarget.currentTime }))} onEnded={() => setSceneTimes((prev) => ({ ...prev, [index]: 0 }))} />{visibleCaption && <div className={`overlayPreview overlay-${overlay.position}`}>{visibleCaption.text}</div>}</div>}
         {state.status === "queued" && <p className="statusText">Submitting to fal queue…</p>}{state.status === "generating" && <p className="statusText">Generating on fal… this page will update automatically.</p>}{state.status === "saving" && <p className="statusText">Generation complete. Adding music + SFX and saving permanently…</p>}{state.status === "done" && <p className={state.persisted ? "savedText" : "errorText"}>{state.persisted ? "✓ Saved permanently to R2" : "⚠ Showing fal copy; R2/Postgres storage is not ready"}</p>}{state.error && <p className="errorText">{state.error}</p>}
