@@ -5,6 +5,8 @@ fal.config({ credentials: process.env.FAL_KEY });
 
 export const runtime = "nodejs";
 
+const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+
 export async function POST(request: Request) {
   try {
     if (!process.env.FAL_KEY) {
@@ -18,8 +20,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "An image file is required." }, { status: 400 });
     }
 
-    if (!file.type.startsWith("image/")) {
-      return NextResponse.json({ error: "Only image files are supported." }, { status: 400 });
+    if (!ALLOWED_TYPES.has(file.type)) {
+      return NextResponse.json(
+        { error: "Seedance reference images must be JPEG, PNG, or WebP. iPhone HEIC/HEIF images are not supported yet. Please choose or export the image as JPG/PNG/WebP." },
+        { status: 400 },
+      );
     }
 
     if (file.size > 10 * 1024 * 1024) {
@@ -27,7 +32,7 @@ export async function POST(request: Request) {
     }
 
     const url = await fal.storage.upload(file);
-    return NextResponse.json({ url });
+    return NextResponse.json({ url, contentType: file.type });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Upload failed.";
     return NextResponse.json({ error: message }, { status: 500 });
