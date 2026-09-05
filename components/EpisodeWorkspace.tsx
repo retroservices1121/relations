@@ -136,6 +136,7 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
         <div>
           <h2>Character references</h2>
           <p>Upload Joe and Danda once. Their hosted references are remembered and reused automatically across episodes on this device.</p>
+          <p className="statusText">Supported: JPG, PNG, WebP. iPhone HEIC/HEIF must be converted first.</p>
           {uploadError && <p className="errorText">{uploadError}</p>}
         </div>
         <div className="referenceInputs">
@@ -144,7 +145,7 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
             {joeUrl && <img className="referenceThumb" src={joeUrl} alt="Joe reference" />}
             <label className="uploadButton">
               {uploading === "joe" ? "Uploading Joe…" : joeUrl ? "Replace Joe Image" : "Upload Joe Image"}
-              <input type="file" accept="image/*" disabled={uploading !== null} onChange={(e) => uploadReference("joe", e.target.files?.[0])} />
+              <input type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading !== null} onChange={(e) => uploadReference("joe", e.target.files?.[0])} />
             </label>
             <input value={joeUrl} onChange={(e) => persistReference("joe", e.target.value)} placeholder="Or paste a public Joe image URL" />
           </div>
@@ -154,7 +155,7 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
             {dandaUrl && <img className="referenceThumb" src={dandaUrl} alt="Danda reference" />}
             <label className="uploadButton">
               {uploading === "danda" ? "Uploading Danda…" : dandaUrl ? "Replace Danda Image" : "Upload Danda Image"}
-              <input type="file" accept="image/*" disabled={uploading !== null} onChange={(e) => uploadReference("danda", e.target.files?.[0])} />
+              <input type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading !== null} onChange={(e) => uploadReference("danda", e.target.files?.[0])} />
             </label>
             <input value={dandaUrl} onChange={(e) => persistReference("danda", e.target.value)} placeholder="Or paste a public Danda image URL" />
           </div>
