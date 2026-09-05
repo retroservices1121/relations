@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { put } from "@vercel/blob";
+import { dbConfigured, saveSceneVideo } from "@/lib/db";
+import { putR2Object, r2Configured } from "@/lib/r2";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 function cleanPart(value: string) {
   return value.replace(/[^a-zA-Z0-9-_]/g, "-");
@@ -10,12 +11,18 @@ function cleanPart(value: string) {
 
 export async function POST(request: Request) {
   try {
-    if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    if (!r2Configured()) {
       return NextResponse.json(
         {
-          error: "Permanent video storage is not configured. Connect a Vercel Blob store to this project so BLOB_READ_WRITE_TOKEN is available.",
-          code: "BLOB_NOT_CONFIGURED",
+          error: "Permanent video storage is not configured. Add the R2 environment variables to Railway.",
+          code: "R2_NOT_CONFIGURED",
         },
+        { status: 503 },
+      );
+    }
+    if (!dbConfigured()) {
+      return NextResponse.json(
+        { error: "Railway Postgres is not configured. Add a Postgres service so DATABASE_URL is available.", code: "DB_NOT_CONFIGURED" },
         { status: 503 },
       );
     }
@@ -29,7 +36,6 @@ export async function POST(request: Request) {
     if (!sourceUrl.startsWith("http")) {
       return NextResponse.json({ error: "A valid source video URL is required." }, { status: 400 });
     }
-
     if (!Number.isInteger(sceneIndex) || sceneIndex < 0) {
       return NextResponse.json({ error: "A valid scene index is required." }, { status: 400 });
     }
@@ -39,15 +45,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: `Could not download generated video (${source.status}).` }, { status: 502 });
     }
 
-    const bytes = await source.arrayBuffer();
-    const pathname = `relations/${cleanPart(episodeId)}/scenes/scene-${sceneIndex + 1}-${cleanPart(requestId)}.mp4`;
-    const blob = await put(pathname, bytes, {
-      access: "public",
-      contentType: "video/mp4",
-      addRandomSuffix: false,
-    });
+    const bytes = new Uint8Array(await source.arrayBuffer());
+    const key = `relations/${cleanPart(episodeId)}/scenes/scene-${sceneIndex + 1}-${cleanPart(requestId)}.mp4`;
+    const stored = await putR2Object(key, bytes, "video/mp4");
 
-    return NextResponse.json({ url: blob.url, pathname: blob.pathname, persisted: true });
+    await saveSceneVideo({ episodeId, sceneIndex, videoUrl: stored.url, requestId });
+
+    return NextResponse.json({ url: stored.url, key: stored.key, persisted: true });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Could not save generated video." },
