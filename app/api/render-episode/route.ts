@@ -15,6 +15,7 @@ const execFileAsync = promisify(execFile);
 const ffmpegPath = process.env.FFMPEG_PATH || "ffmpeg";
 
 type OverlayPosition = "top" | "middle" | "bottom";
+type TimedOverlay = { text: string; start: number; end: number; position: OverlayPosition };
 type RenderScene = {
   videoUrl: string;
   text?: string;
@@ -52,6 +53,30 @@ function wrapText(text: string, maxChars = 26) {
   }
   if (line) lines.push(line);
   return lines.slice(0, 4);
+}
+
+function parseTimedOverlays(scene: RenderScene): TimedOverlay[] {
+  const text = (scene.text || "").trim();
+  if (!text) return [];
+  const position = scene.position || "bottom";
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const parsed: TimedOverlay[] = [];
+  const timedPattern = /^\[(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)\]\s*(.+)$/;
+
+  for (const line of lines) {
+    const match = line.match(timedPattern);
+    if (!match) {
+      const start = Math.max(0, Number(scene.start) || 0);
+      const endValue = Number(scene.end);
+      const end = Number.isFinite(endValue) && endValue > start ? endValue : 999;
+      return [{ text, position, start, end }];
+    }
+    const start = Math.max(0, Number(match[1]));
+    const end = Number(match[2]);
+    if (!Number.isFinite(end) || end <= start) continue;
+    parsed.push({ text: match[3].trim(), position, start, end });
+  }
+  return parsed;
 }
 
 async function makeOverlayPng(text: string, position: OverlayPosition, outputPath: string) {
@@ -114,21 +139,32 @@ export async function POST(request: Request) {
       const outputPath = path.join(workDir, `part-${index}.mp4`);
       await downloadFile(scene.videoUrl, inputPath);
 
-      const text = (scene.text || "").trim();
-      if (text) {
-        const overlayPath = path.join(workDir, `overlay-${index}.png`);
-        await makeOverlayPng(text, scene.position || "bottom", overlayPath);
-        const start = Math.max(0, Number(scene.start) || 0);
-        const endValue = Number(scene.end);
-        const end = Number.isFinite(endValue) && endValue > start ? endValue : 999;
-        const filter = `[0:v]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280[v0];[v0][1:v]overlay=0:0:enable='between(t,${start},${end})'[v]`;
-        await execFileAsync(ffmpegPath, [
-          "-y", "-i", inputPath, "-loop", "1", "-i", overlayPath,
-          "-filter_complex", filter,
+      const timedOverlays = parseTimedOverlays(scene);
+      if (timedOverlays.length) {
+        const overlayPaths: string[] = [];
+        for (let overlayIndex = 0; overlayIndex < timedOverlays.length; overlayIndex += 1) {
+          const overlayPath = path.join(workDir, `overlay-${index}-${overlayIndex}.png`);
+          await makeOverlayPng(timedOverlays[overlayIndex].text, timedOverlays[overlayIndex].position, overlayPath);
+          overlayPaths.push(overlayPath);
+        }
+
+        const args = ["-y", "-i", inputPath];
+        for (const overlayPath of overlayPaths) args.push("-loop", "1", "-i", overlayPath);
+
+        const filters = ["[0:v]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280[v0]"];
+        timedOverlays.forEach((overlay, overlayIndex) => {
+          const inputLabel = overlayIndex === 0 ? "[v0]" : `[v${overlayIndex}]`;
+          const outputLabel = overlayIndex === timedOverlays.length - 1 ? "[v]" : `[v${overlayIndex + 1}]`;
+          filters.push(`${inputLabel}[${overlayIndex + 1}:v]overlay=0:0:enable='between(t,${overlay.start},${overlay.end})'${outputLabel}`);
+        });
+
+        args.push(
+          "-filter_complex", filters.join(";"),
           "-map", "[v]", "-map", "0:a?",
           "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
           "-c:a", "aac", "-shortest", "-movflags", "+faststart", outputPath,
-        ]);
+        );
+        await execFileAsync(ffmpegPath, args);
       } else {
         await execFileAsync(ffmpegPath, [
           "-y", "-i", inputPath,
