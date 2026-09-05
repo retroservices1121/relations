@@ -79,6 +79,12 @@ async function downloadFile(url: string, outputPath: string) {
   await fs.writeFile(outputPath, Buffer.from(await response.arrayBuffer()));
 }
 
+function isRenderScene(scene: unknown): scene is RenderScene {
+  if (!scene || typeof scene !== "object") return false;
+  const candidate = scene as { videoUrl?: unknown };
+  return typeof candidate.videoUrl === "string" && candidate.videoUrl.startsWith("http");
+}
+
 export async function POST(request: Request) {
   let workDir = "";
   try {
@@ -90,10 +96,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Final export requires Railway Postgres. DATABASE_URL is not configured." }, { status: 503 });
     }
 
-    const body = await request.json();
-    const episodeId = typeof body.episodeId === "string" ? body.episodeId : "episode";
-    const rawScenes = Array.isArray(body.scenes) ? body.scenes : [];
-    const scenes: RenderScene[] = rawScenes.filter((scene) => scene && typeof scene.videoUrl === "string" && scene.videoUrl.startsWith("http"));
+    const body: unknown = await request.json();
+    const payload = body && typeof body === "object" ? (body as { episodeId?: unknown; scenes?: unknown }) : {};
+    const episodeId = typeof payload.episodeId === "string" ? payload.episodeId : "episode";
+    const rawScenes: unknown[] = Array.isArray(payload.scenes) ? payload.scenes : [];
+    const scenes: RenderScene[] = rawScenes.filter(isRenderScene);
 
     if (!scenes.length) {
       return NextResponse.json({ error: "At least one saved scene is required." }, { status: 400 });
