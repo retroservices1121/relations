@@ -39,6 +39,7 @@ function ScenePreview({ videoUrl, overlay }: { videoUrl: string; overlay: Overla
         controls
         playsInline
         preload="metadata"
+        onPlay={(event) => setCurrentTime(event.currentTarget.currentTime || 0)}
         onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime || 0)}
         onSeeked={(event) => setCurrentTime(event.currentTarget.currentTime || 0)}
         onLoadedMetadata={() => setCurrentTime(0)}
@@ -66,6 +67,7 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
   const [finalActionError, setFinalActionError] = useState("");
   const [sharingFinal, setSharingFinal] = useState(false);
   const overlayTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
+  const pollingRequests = useRef<Set<string>>(new Set());
   const projectStorageKey = `relations:project:${episode.id}`;
 
   function defaultOverlay(index: number): OverlayConfig {
@@ -78,9 +80,11 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
     if (!value || typeof value !== "object") return defaults;
     const candidate = value as Partial<OverlayConfig>;
     const position: OverlayPosition = candidate.position === "top" || candidate.position === "middle" || candidate.position === "bottom" ? candidate.position : defaults.position;
-    const start = Number.isFinite(Number(candidate.start)) ? Number(candidate.start) : defaults.start;
-    const end = Number.isFinite(Number(candidate.end)) ? Number(candidate.end) : defaults.end;
-    return { text: typeof candidate.text === "string" ? candidate.text : defaults.text, position, start, end };
+    const hasSavedText = typeof candidate.text === "string" && candidate.text.trim().length > 0;
+    const text = hasSavedText ? candidate.text as string : defaults.text;
+    const start = hasSavedText && Number.isFinite(Number(candidate.start)) ? Number(candidate.start) : defaults.start;
+    const end = hasSavedText && Number.isFinite(Number(candidate.end)) ? Number(candidate.end) : defaults.end;
+    return { text, position, start, end };
   }
 
   async function loadBalance() {
@@ -158,6 +162,26 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
     if (!projectLoaded) return;
     localStorage.setItem(projectStorageKey, JSON.stringify({ sceneStates, overlays, finalUrl }));
   }, [sceneStates, overlays, finalUrl, projectLoaded, projectStorageKey]);
+
+  useEffect(() => {
+    if (!projectLoaded) return;
+    for (const [key, state] of Object.entries(sceneStates)) {
+      if (state.status !== "queued" && state.status !== "generating") continue;
+      const index = Number(key);
+      if (!state.requestId) {
+        setSceneStates((prev) => ({ ...prev, [index]: { status: "idle" } }));
+        continue;
+      }
+      if (pollingRequests.current.has(state.requestId)) continue;
+      const requestId = state.requestId;
+      pollingRequests.current.add(requestId);
+      void pollForResult(index, requestId, model)
+        .catch((error) => {
+          setSceneStates((prev) => ({ ...prev, [index]: { status: "error", requestId, error: error instanceof Error ? error.message : "Could not resume generation" } }));
+        })
+        .finally(() => pollingRequests.current.delete(requestId));
+    }
+  }, [projectLoaded, sceneStates, model]);
 
   function persistReference(character: CharacterKey, url: string) {
     if (character === "joe") {
@@ -314,7 +338,7 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
 
       <section className="referencePanel"><div><span className="eyebrow">LOCKED CHARACTER LIBRARY</span><h2>Joe + Danda references</h2><p>Use the final cartoon character images here. Once uploaded, they are remembered and reused automatically across every episode on this device.</p><p className="statusText">Silent-cartoon format is locked: Studio adds soundtrack and precisely timed overlays after generation.</p><p className="statusText">Production storage: Railway Postgres saves project data and Cloudflare R2 saves video files.</p>{uploadError && <p className="errorText">{uploadError}</p>}{storageError && <p className="errorText">{storageError}</p>}</div>
         <div className="referenceInputs"><div className="characterRef"><label>Joe cartoon reference {joeUrl && "✓ Locked"}</label>{joeUrl && <img className="referenceThumb" src={joeUrl} alt="Joe cartoon reference" />}<label className="uploadButton">{uploading === "joe" ? "Uploading Joe…" : joeUrl ? "Replace Joe Cartoon" : "Upload Joe Cartoon"}<input type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading !== null} onChange={(event) => uploadReference("joe", event.target.files?.[0])} /></label><input value={joeUrl} onChange={(event) => persistReference("joe", event.target.value)} placeholder="Or paste the approved Joe cartoon URL" /></div>
-        <div className="characterRef"><label>Danda cartoon reference {dandaUrl && "✓ Locked"}</label>{dandaUrl && <img className="referenceThumb" src={dandaUrl} alt="Danda cartoon reference" />}<label className="uploadButton">{uploading === "danda" ? "Uploading Danda…" : dandaUrl ? "Replace Danda Cartoon" : "Upload Danda Cartoon"}<input type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading !== null} onChange={(event) => uploadReference("danda", event.target.files?.[0])} /></label><input value={dandaUrl} onChange={(event) => persistReference("danda", event.target.value)} placeholder="Or paste the approved Danda cartoon URL" /></div></div></section>
+        <div className="characterRef"><label>Danda cartoon reference {dandaUrl && "✓ Locked"}</label>{dandaUrl && <img className="referenceThumb" src={dandaUrl} alt="Danda cartoon reference" />}><label className="uploadButton">{uploading === "danda" ? "Uploading Danda…" : dandaUrl ? "Replace Danda Cartoon" : "Upload Danda Cartoon"}<input type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading !== null} onChange={(event) => uploadReference("danda", event.target.files?.[0])} /></label><input value={dandaUrl} onChange={(event) => persistReference("danda", event.target.value)} placeholder="Or paste the approved Danda cartoon URL" /></div></div></section>
 
       <div className="sceneList">{episode.scenes.map((scene, index) => {
         const state = sceneStates[index] || { status: "idle" };
