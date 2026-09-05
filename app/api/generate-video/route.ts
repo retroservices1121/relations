@@ -17,11 +17,11 @@ ANIMATION STYLE IS LOCKED: limited-animation 2D social-media cartoon. Snappy pos
 
 ABSOLUTELY AVOID: 3D or CGI appearance, Pixar-like rendering, polished animated-feature look, glossy digital illustration, realistic skin, pores, realistic hair strands, realistic fabric, complex textures, realistic lighting, dramatic shadows, rim lighting, volumetric lighting, depth of field, bokeh, lens effects, cinematic color grading, painterly rendering, anime rendering, photorealism, hyper-detailed environments, elaborate camera moves, generic replacement faces, face drift, beard removal, hairstyle changes or body-type changes.
 
-AUDIO IS REQUIRED, BUT SPEECH IS FORBIDDEN. Generate a lively finished cartoon soundtrack with light playful instrumental background music, environmental ambience and synchronized cartoon sound effects that match visible actions: footsteps, clothing movement, doors, objects, phone taps, clock ticks, whooshes, pops, swishes, comedic stings and reaction accents when appropriate. MUSIC MUST BE INSTRUMENTAL ONLY. NO HUMAN VOICES. NO SPOKEN WORDS. NO DIALOGUE. NO WHISPERS. NO MUMBLING. NO VOCALS. NO SINGING. NO BACKGROUND CONVERSATION. NO NARRATION.
+THIS VIDEO IS GENERATED SILENT FOR POST-PRODUCTION SOUND DESIGN. Do not perform dialogue. Do not act as though speaking. Joe and Danda communicate only through eyes, eyebrows, head movement, hands, gestures, posture and physical comedy.
 
-MOUTH ANIMATION IS LOCKED: Joe and Danda are SILENT characters. Their mouths must NEVER flap, articulate syllables, lip-sync, silently mouth words, or perform speech-like jaw movement. Keep mouths closed or in a single held non-speaking expression for each reaction. Mouth shape may change only as a quick visual facial expression such as a smile, frown, gasp or laugh reaction, never as continuous talking animation. Communication happens only through eyes, eyebrows, head movement, hands, gestures, posture and physical comedy.
+MOUTH ANIMATION IS LOCKED: Joe and Danda are SILENT characters. Their mouths must NEVER flap, articulate syllables, lip-sync, silently mouth words, or perform speech-like jaw movement. Keep mouths closed or in a single held non-speaking expression for each reaction. Mouth shape may change only as a quick visual facial expression such as a smile, frown, gasp or laugh reaction, never as continuous talking animation.
 
-Do not generate captions, subtitles, speech bubbles, signs, labels, written dialogue or other on-screen text. All text overlays are added later in Studio.`;
+Do not generate captions, subtitles, speech bubbles, signs, labels, written dialogue or other on-screen text. All text overlays and all audio are added later in Studio.`;
 
 function endpointFor(model: string) {
   return model === "seedance-standard"
@@ -31,76 +31,33 @@ function endpointFor(model: string) {
 
 function errorPayload(error: unknown, fallback: string) {
   let raw = fallback;
-
   if (error && typeof error === "object") {
     const maybe = error as { message?: string; body?: unknown; response?: { data?: unknown } };
     const details = maybe.body ?? maybe.response?.data;
-
     if (details) {
-      try {
-        raw = `${maybe.message || fallback}: ${JSON.stringify(details)}`;
-      } catch {
-        raw = maybe.message || fallback;
-      }
-    } else if (maybe.message) {
-      raw = maybe.message;
-    }
+      try { raw = `${maybe.message || fallback}: ${JSON.stringify(details)}`; } catch { raw = maybe.message || fallback; }
+    } else if (maybe.message) raw = maybe.message;
   }
-
   const normalized = raw.toLowerCase();
-  const realPersonBlocked =
-    normalized.includes("likenesses of real people") ||
-    normalized.includes("likeness of real people") ||
-    normalized.includes("private information") ||
-    normalized.includes("real people");
-
-  if (realPersonBlocked) {
-    return {
-      error: "Seedance blocked this reference because it appears to contain a real person. Use the approved cartoon Joe and Danda character images instead of source photos.",
-      code: "REAL_PERSON_REFERENCE_BLOCKED",
-      status: 422,
-    };
-  }
-
+  const realPersonBlocked = normalized.includes("likenesses of real people") || normalized.includes("likeness of real people") || normalized.includes("private information") || normalized.includes("real people");
+  if (realPersonBlocked) return { error: "Seedance blocked this reference because it appears to contain a real person. Use the approved cartoon Joe and Danda character images instead of source photos.", code: "REAL_PERSON_REFERENCE_BLOCKED", status: 422 };
   return { error: raw, code: "GENERATION_ERROR", status: 500 };
 }
 
 export async function POST(request: Request) {
   try {
-    if (!process.env.FAL_KEY) {
-      return NextResponse.json({ error: "FAL_KEY is not configured on the server." }, { status: 500 });
-    }
-
+    if (!process.env.FAL_KEY) return NextResponse.json({ error: "FAL_KEY is not configured on the server." }, { status: 500 });
     const body = await request.json();
     const { prompt, imageUrls = [], duration = 5, model = "seedance-fast" } = body;
-
-    if (!prompt || typeof prompt !== "string") {
-      return NextResponse.json({ error: "A scene prompt is required." }, { status: 400 });
-    }
-
-    if (!Array.isArray(imageUrls) || imageUrls.length < 2) {
-      return NextResponse.json(
-        { error: "Upload both approved cartoon character references for Joe and Danda before generating a scene." },
-        { status: 400 },
-      );
-    }
+    if (!prompt || typeof prompt !== "string") return NextResponse.json({ error: "A scene prompt is required." }, { status: 400 });
+    if (!Array.isArray(imageUrls) || imageUrls.length < 2) return NextResponse.json({ error: "Upload both approved cartoon character references for Joe and Danda before generating a scene." }, { status: 400 });
 
     const endpoint = endpointFor(model);
     const safeDuration = Math.max(4, Math.min(15, Number(duration) || 5));
     const lockedPrompt = `${LOCKED_VISUAL_DIRECTION}\n\nSCENE INSTRUCTIONS:\n${prompt}`;
-
     const submission = await fal.queue.submit(endpoint, {
-      input: {
-        prompt: lockedPrompt,
-        image_urls: imageUrls.slice(0, 2),
-        resolution: "720p",
-        duration: String(safeDuration),
-        aspect_ratio: "9:16",
-        generate_audio: true,
-        bitrate_mode: "standard",
-      },
+      input: { prompt: lockedPrompt, image_urls: imageUrls.slice(0, 2), resolution: "720p", duration: String(safeDuration), aspect_ratio: "9:16", generate_audio: false, bitrate_mode: "standard" },
     });
-
     return NextResponse.json({ requestId: submission.request_id, model, status: "queued" });
   } catch (error) {
     const payload = errorPayload(error, "Video generation failed.");
@@ -110,32 +67,17 @@ export async function POST(request: Request) {
 
 export async function GET(request: Request) {
   try {
-    if (!process.env.FAL_KEY) {
-      return NextResponse.json({ error: "FAL_KEY is not configured on the server." }, { status: 500 });
-    }
-
+    if (!process.env.FAL_KEY) return NextResponse.json({ error: "FAL_KEY is not configured on the server." }, { status: 500 });
     const { searchParams } = new URL(request.url);
     const requestId = searchParams.get("requestId");
     const model = searchParams.get("model") || "seedance-fast";
-
-    if (!requestId) {
-      return NextResponse.json({ error: "requestId is required." }, { status: 400 });
-    }
-
+    if (!requestId) return NextResponse.json({ error: "requestId is required." }, { status: 400 });
     const endpoint = endpointFor(model);
     const status = await fal.queue.status(endpoint, { requestId, logs: true });
-
-    if (status.status !== "COMPLETED") {
-      return NextResponse.json({ requestId, status: status.status, logs: "logs" in status ? status.logs : undefined });
-    }
-
+    if (status.status !== "COMPLETED") return NextResponse.json({ requestId, status: status.status, logs: "logs" in status ? status.logs : undefined });
     const result = await fal.queue.result(endpoint, { requestId });
     const data = result.data as { video?: { url?: string }; seed?: number };
-
-    if (!data.video?.url) {
-      return NextResponse.json({ error: "Generation completed but no video URL was returned." }, { status: 502 });
-    }
-
+    if (!data.video?.url) return NextResponse.json({ error: "Generation completed but no video URL was returned." }, { status: 502 });
     return NextResponse.json({ requestId, status: "COMPLETED", videoUrl: data.video.url, seed: data.seed });
   } catch (error) {
     const payload = errorPayload(error, "Could not check video generation status.");
