@@ -57,12 +57,12 @@ export async function ensureHouseholdNonsenseTheme() {
 
     const result = await fal.subscribe("fal-ai/stable-audio-25/audio-to-audio", {
       input: {
-        prompt: "Instrumental lighthearted family relationship comedy theme for a simple hand-drawn 2D social-media cartoon. Playful, warm, bouncy, mischievous, clean and catchy. Small percussion, light plucked instruments and cheerful rhythmic accents. Keep the same overall musical personality and pacing as the reference, but REMOVE all reaction noises and sound effects. MUSIC ONLY. No voices, no speech, no laughter, no gasps, no human sounds, no footsteps, no impacts, no whooshes, no cartoon SFX. Smooth continuous 30-second instrumental bed that can sit under comedy scenes and loop naturally without a dramatic ending.",
+        prompt: "Instrumental lighthearted family relationship comedy theme for a simple hand-drawn 2D social-media cartoon. Playful, warm, bouncy, mischievous, clean and catchy. Small percussion, light plucked instruments and cheerful rhythmic accents. Keep the same overall musical personality and pacing as the reference, but remove reaction noises and sound effects. Music only. No voices, no speech, no laughter, no gasps, no human sounds, no footsteps, no impacts, no whooshes, no cartoon sound effects. Smooth continuous instrumental bed that can sit under comedy scenes and loop naturally without a dramatic ending.",
         audio_url: referenceUrl,
         strength: 0.58,
-        num_inference_steps: 16,
+        num_inference_steps: 8,
         total_seconds: 30,
-        guidance_scale: 1.5,
+        guidance_scale: 1,
       },
       logs: false,
     });
