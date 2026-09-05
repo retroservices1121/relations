@@ -120,7 +120,7 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
           model: selectedModel,
           duration: scene.duration,
           imageUrls,
-          prompt: `Use the approved recurring cartoon character assets exactly as shown in the references. @Image1 is Joe. @Image2 is Danda. Preserve their faces, hairstyles, body proportions, clothing identity and overall 2D cartoon design. Do not reinterpret them as photorealistic people. Vertical 9:16 relationship-comedy short. Scene action: ${scene.prompt}${scene.caption ? ` On-screen caption: ${scene.caption}` : ""}`,
+          prompt: `Use the approved recurring cartoon character assets exactly as shown in the references. @Image1 is Joe. @Image2 is Danda. Preserve their faces, hairstyles, clothing identity and overall 2D cartoon design. CHARACTER PROPORTIONS ARE LOCKED: Joe has an average, slightly stocky everyday-dad build. He is not muscular, athletic, bodybuilder-like, broad-chested or physically defined; keep his arms, shoulders and chest naturally proportioned and soft. Danda is visibly shorter than Joe whenever they appear together. Maintain a clear, consistent height difference in every shared shot, with the top of Danda's head below Joe's. Do not make them the same height. Preserve these body types and relative heights consistently throughout the video. Do not reinterpret them as photorealistic people. Vertical 9:16 relationship-comedy short. Scene action: ${scene.prompt}${scene.caption ? ` On-screen caption: ${scene.caption}` : ""}`,
         }),
       });
 
