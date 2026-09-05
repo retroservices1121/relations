@@ -23,10 +23,25 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
   const [sceneStates, setSceneStates] = useState<Record<number, SceneState>>({});
   const [uploading, setUploading] = useState<CharacterKey | null>(null);
   const [uploadError, setUploadError] = useState("");
+  const [balance, setBalance] = useState<number | null>(null);
+  const [balanceError, setBalanceError] = useState("");
+
+  async function loadBalance() {
+    try {
+      const response = await fetch("/api/fal-balance", { cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not load balance");
+      setBalance(typeof data.balance === "number" ? data.balance : null);
+      setBalanceError("");
+    } catch (error) {
+      setBalanceError(error instanceof Error ? error.message : "Balance unavailable");
+    }
+  }
 
   useEffect(() => {
     setJoeUrl(localStorage.getItem(JOE_STORAGE_KEY) || "");
     setDandaUrl(localStorage.getItem(DANDA_STORAGE_KEY) || "");
+    void loadBalance();
   }, []);
 
   function persistReference(character: CharacterKey, url: string) {
@@ -72,6 +87,7 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
 
       if (data.status === "COMPLETED" && data.videoUrl) {
         setSceneStates((prev) => ({ ...prev, [index]: { status: "done", videoUrl: data.videoUrl, requestId } }));
+        void loadBalance();
         return;
       }
 
@@ -110,6 +126,7 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
         ...prev,
         [index]: { status: "error", error: error instanceof Error ? error.message : "Generation failed" },
       }));
+      void loadBalance();
     }
   }
 
@@ -123,6 +140,10 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
           <p>{episode.hook}</p>
         </div>
         <div className="workspaceControls">
+          <div className="creditBalance" onClick={() => void loadBalance()} title="Tap to refresh fal balance">
+            <span>fal credits</span>
+            <b>{balance === null ? (balanceError ? "Unavailable" : "Loading…") : `$${balance.toFixed(2)}`}</b>
+          </div>
           <label>Model
             <select value={model} onChange={(e) => setModel(e.target.value)}>
               <option value="seedance-fast">Seedance 2 Fast</option>
