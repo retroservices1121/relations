@@ -1,13 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Episode } from "../data/episodes";
 
 type SceneState = {
-  status: "idle" | "queued" | "generating" | "done" | "error";
+  status: "idle" | "queued" | "generating" | "saving" | "done" | "error";
   videoUrl?: string;
   error?: string;
   requestId?: string;
+  persisted?: boolean;
+};
+
+type OverlayPosition = "top" | "middle" | "bottom";
+type OverlayConfig = {
+  text: string;
+  position: OverlayPosition;
+  start: number;
+  end: number;
 };
 
 type CharacterKey = "joe" | "danda";
@@ -21,10 +30,18 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
   const [dandaUrl, setDandaUrl] = useState("");
   const [model, setModel] = useState("seedance-fast");
   const [sceneStates, setSceneStates] = useState<Record<number, SceneState>>({});
+  const [overlays, setOverlays] = useState<Record<number, OverlayConfig>>({});
   const [uploading, setUploading] = useState<CharacterKey | null>(null);
   const [uploadError, setUploadError] = useState("");
+  const [storageError, setStorageError] = useState("");
   const [balance, setBalance] = useState<number | null>(null);
   const [balanceError, setBalanceError] = useState("");
+  const [projectLoaded, setProjectLoaded] = useState(false);
+  const [renderingFinal, setRenderingFinal] = useState(false);
+  const [finalUrl, setFinalUrl] = useState("");
+  const [finalError, setFinalError] = useState("");
+
+  const projectStorageKey = `relations:project:${episode.id}`;
 
   async function loadBalance() {
     try {
@@ -41,8 +58,45 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
   useEffect(() => {
     setJoeUrl(localStorage.getItem(JOE_STORAGE_KEY) || "");
     setDandaUrl(localStorage.getItem(DANDA_STORAGE_KEY) || "");
+
+    const defaultOverlays = Object.fromEntries(
+      episode.scenes.map((scene, index) => [
+        index,
+        {
+          text: scene.caption || "",
+          position: "bottom" as OverlayPosition,
+          start: 0,
+          end: scene.duration,
+        },
+      ]),
+    );
+
+    try {
+      const saved = localStorage.getItem(projectStorageKey);
+      if (saved) {
+        const project = JSON.parse(saved) as {
+          sceneStates?: Record<number, SceneState>;
+          overlays?: Record<number, OverlayConfig>;
+          finalUrl?: string;
+        };
+        setSceneStates(project.sceneStates || {});
+        setOverlays({ ...defaultOverlays, ...(project.overlays || {}) });
+        setFinalUrl(project.finalUrl || "");
+      } else {
+        setOverlays(defaultOverlays);
+      }
+    } catch {
+      setOverlays(defaultOverlays);
+    }
+
+    setProjectLoaded(true);
     void loadBalance();
-  }, []);
+  }, [episode.id, projectStorageKey]);
+
+  useEffect(() => {
+    if (!projectLoaded) return;
+    localStorage.setItem(projectStorageKey, JSON.stringify({ sceneStates, overlays, finalUrl }));
+  }, [sceneStates, overlays, finalUrl, projectLoaded, projectStorageKey]);
 
   function persistReference(character: CharacterKey, url: string) {
     if (character === "joe") {
@@ -76,6 +130,31 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
     }
   }
 
+  async function saveGeneratedVideo(index: number, requestId: string, sourceUrl: string) {
+    setSceneStates((prev) => ({ ...prev, [index]: { ...prev[index], status: "saving", requestId, videoUrl: sourceUrl } }));
+    const response = await fetch("/api/persist-video", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sourceUrl, episodeId: episode.id, sceneIndex: index, requestId }),
+    });
+    const data = await response.json();
+
+    if (!response.ok) {
+      setStorageError(data.error || "Permanent storage is not configured.");
+      setSceneStates((prev) => ({
+        ...prev,
+        [index]: { status: "done", videoUrl: sourceUrl, requestId, persisted: false },
+      }));
+      return;
+    }
+
+    setStorageError("");
+    setSceneStates((prev) => ({
+      ...prev,
+      [index]: { status: "done", videoUrl: data.url, requestId, persisted: true },
+    }));
+  }
+
   async function pollForResult(index: number, requestId: string, selectedModel: string) {
     for (let attempt = 0; attempt < 180; attempt += 1) {
       await sleep(3000);
@@ -86,7 +165,7 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
       if (!response.ok) throw new Error(data.error || "Could not check generation status");
 
       if (data.status === "COMPLETED" && data.videoUrl) {
-        setSceneStates((prev) => ({ ...prev, [index]: { status: "done", videoUrl: data.videoUrl, requestId } }));
+        await saveGeneratedVideo(index, requestId, data.videoUrl);
         void loadBalance();
         return;
       }
@@ -110,6 +189,8 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
       return;
     }
 
+    setFinalUrl("");
+    setFinalError("");
     setSceneStates((prev) => ({ ...prev, [index]: { status: "queued" } }));
 
     try {
@@ -136,6 +217,58 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
         [index]: { status: "error", error: error instanceof Error ? error.message : "Generation failed" },
       }));
       void loadBalance();
+    }
+  }
+
+  function updateOverlay(index: number, patch: Partial<OverlayConfig>) {
+    setOverlays((prev) => ({
+      ...prev,
+      [index]: {
+        text: "",
+        position: "bottom",
+        start: 0,
+        end: episode.scenes[index].duration,
+        ...(prev[index] || {}),
+        ...patch,
+      },
+    }));
+    setFinalUrl("");
+  }
+
+  const allScenesReady = useMemo(
+    () => episode.scenes.every((_, index) => sceneStates[index]?.status === "done" && Boolean(sceneStates[index]?.videoUrl)),
+    [episode.scenes, sceneStates],
+  );
+
+  async function buildFinalVideo() {
+    if (!allScenesReady) {
+      setFinalError("Generate and approve every scene before building the final episode.");
+      return;
+    }
+
+    setRenderingFinal(true);
+    setFinalError("");
+    try {
+      const scenes = episode.scenes.map((scene, index) => ({
+        videoUrl: sceneStates[index].videoUrl,
+        text: overlays[index]?.text || "",
+        position: overlays[index]?.position || "bottom",
+        start: overlays[index]?.start ?? 0,
+        end: overlays[index]?.end ?? scene.duration,
+      }));
+
+      const response = await fetch("/api/render-episode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ episodeId: episode.id, scenes }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Final render failed");
+      setFinalUrl(data.url);
+    } catch (error) {
+      setFinalError(error instanceof Error ? error.message : "Final render failed");
+    } finally {
+      setRenderingFinal(false);
     }
   }
 
@@ -167,8 +300,10 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
           <span className="eyebrow">LOCKED CHARACTER LIBRARY</span>
           <h2>Joe + Danda references</h2>
           <p>Use the final cartoon character images here. Once uploaded, they are remembered and reused automatically across every episode on this device.</p>
+          <p className="statusText">Silent-cartoon format is locked: no AI dialogue or generated text. Studio overlays are added after the scenes are approved.</p>
           <p className="statusText">Do not upload real-person source photos here. Seedance can reject them. Upload only the approved cartoon Joe and Danda assets.</p>
           {uploadError && <p className="errorText">{uploadError}</p>}
+          {storageError && <p className="errorText">{storageError}</p>}
         </div>
         <div className="referenceInputs">
           <div className="characterRef">
@@ -196,22 +331,72 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
       <div className="sceneList">
         {episode.scenes.map((scene, index) => {
           const state = sceneStates[index] || { status: "idle" };
+          const overlay = overlays[index] || { text: scene.caption || "", position: "bottom", start: 0, end: scene.duration };
           return (
             <article className="sceneCard" key={index}>
               <div className="sceneMeta"><span>SCENE {index + 1}</span><b>{scene.duration}s</b></div>
               <h3>{scene.prompt}</h3>
-              {scene.caption && <p className="captionPreview">Overlay later: “{scene.caption}”</p>}
-              {state.videoUrl && <video className="sceneVideo" src={state.videoUrl} controls playsInline />}
+
+              {state.videoUrl && (
+                <div className="videoPreviewWrap">
+                  <video className="sceneVideo" src={state.videoUrl} controls playsInline />
+                  {overlay.text && <div className={`overlayPreview overlay-${overlay.position}`}>{overlay.text}</div>}
+                </div>
+              )}
+
               {state.status === "queued" && <p className="statusText">Submitting to fal queue…</p>}
               {state.status === "generating" && <p className="statusText">Generating on fal… this page will update automatically.</p>}
+              {state.status === "saving" && <p className="statusText">Generation complete. Saving the scene permanently…</p>}
+              {state.status === "done" && <p className={state.persisted ? "savedText" : "errorText"}>{state.persisted ? "✓ Saved permanently" : "⚠ Showing fal copy; permanent storage still needs Vercel Blob"}</p>}
               {state.error && <p className="errorText">{state.error}</p>}
-              <button disabled={state.status === "queued" || state.status === "generating"} onClick={() => generateScene(index)}>
-                {state.status === "queued" ? "Submitting…" : state.status === "generating" ? "Generating…" : state.status === "done" ? "Regenerate Scene" : "Generate Scene"}
+
+              <div className="overlayEditor">
+                <span className="eyebrow">TEXT OVERLAY — ADDED AFTER GENERATION</span>
+                <label>Overlay text
+                  <textarea value={overlay.text} onChange={(e) => updateOverlay(index, { text: e.target.value })} placeholder="Optional caption or dialogue added in post" />
+                </label>
+                <div className="overlayGrid">
+                  <label>Position
+                    <select value={overlay.position} onChange={(e) => updateOverlay(index, { position: e.target.value as OverlayPosition })}>
+                      <option value="top">Top</option>
+                      <option value="middle">Middle</option>
+                      <option value="bottom">Bottom</option>
+                    </select>
+                  </label>
+                  <label>Start (sec)
+                    <input type="number" min="0" max={scene.duration} step="0.1" value={overlay.start} onChange={(e) => updateOverlay(index, { start: Number(e.target.value) })} />
+                  </label>
+                  <label>End (sec)
+                    <input type="number" min="0" max={scene.duration} step="0.1" value={overlay.end} onChange={(e) => updateOverlay(index, { end: Number(e.target.value) })} />
+                  </label>
+                </div>
+              </div>
+
+              <button disabled={["queued", "generating", "saving"].includes(state.status)} onClick={() => generateScene(index)}>
+                {state.status === "queued" ? "Submitting…" : state.status === "generating" ? "Generating…" : state.status === "saving" ? "Saving…" : state.status === "done" ? "Regenerate Scene" : "Generate Scene"}
               </button>
             </article>
           );
         })}
       </div>
+
+      <section className="finalBuilder">
+        <span className="eyebrow">FINAL EPISODE</span>
+        <h2>Build the finished short</h2>
+        <p>Once every scene is approved, Studio stitches them in order, burns in your timed text overlays, keeps the scene audio and sound effects, and saves one final vertical MP4.</p>
+        <button disabled={!allScenesReady || renderingFinal} onClick={() => void buildFinalVideo()}>
+          {renderingFinal ? "Rendering Final Video…" : "Build Final Video"}
+        </button>
+        {!allScenesReady && <p className="statusText">Generate all {episode.scenes.length} scenes to unlock final rendering.</p>}
+        {finalError && <p className="errorText">{finalError}</p>}
+        {finalUrl && (
+          <div className="finalResult">
+            <p className="savedText">✓ Final episode saved permanently</p>
+            <video className="finalVideo" src={finalUrl} controls playsInline />
+            <a className="downloadLink" href={finalUrl} target="_blank" rel="noreferrer">Open final MP4</a>
+          </div>
+        )}
+      </section>
     </div>
   );
 }
