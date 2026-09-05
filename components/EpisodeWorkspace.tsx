@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Episode } from "../data/episodes";
 
 type SceneState = {
@@ -21,6 +21,17 @@ type OverlayConfig = {
 
 type CharacterKey = "joe" | "danda";
 
+type DatabaseScene = {
+  scene_index: number;
+  video_url?: string | null;
+  request_id?: string | null;
+  persisted?: boolean;
+  overlay_text?: string | null;
+  overlay_position?: string | null;
+  overlay_start?: number | null;
+  overlay_end?: number | null;
+};
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const JOE_STORAGE_KEY = "relations:character:joe";
 const DANDA_STORAGE_KEY = "relations:character:danda";
@@ -40,6 +51,7 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
   const [renderingFinal, setRenderingFinal] = useState(false);
   const [finalUrl, setFinalUrl] = useState("");
   const [finalError, setFinalError] = useState("");
+  const overlayTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
 
   const projectStorageKey = `relations:project:${episode.id}`;
 
@@ -56,21 +68,20 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
   }
 
   useEffect(() => {
+    let cancelled = false;
     setJoeUrl(localStorage.getItem(JOE_STORAGE_KEY) || "");
     setDandaUrl(localStorage.getItem(DANDA_STORAGE_KEY) || "");
 
     const defaultOverlays = Object.fromEntries(
       episode.scenes.map((scene, index) => [
         index,
-        {
-          text: scene.caption || "",
-          position: "bottom" as OverlayPosition,
-          start: 0,
-          end: scene.duration,
-        },
+        { text: scene.caption || "", position: "bottom" as OverlayPosition, start: 0, end: scene.duration },
       ]),
     );
 
+    let localStates: Record<number, SceneState> = {};
+    let localOverlays: Record<number, OverlayConfig> = defaultOverlays;
+    let localFinalUrl = "";
     try {
       const saved = localStorage.getItem(projectStorageKey);
       if (saved) {
@@ -79,19 +90,65 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
           overlays?: Record<number, OverlayConfig>;
           finalUrl?: string;
         };
-        setSceneStates(project.sceneStates || {});
-        setOverlays({ ...defaultOverlays, ...(project.overlays || {}) });
-        setFinalUrl(project.finalUrl || "");
-      } else {
-        setOverlays(defaultOverlays);
+        localStates = project.sceneStates || {};
+        localOverlays = { ...defaultOverlays, ...(project.overlays || {}) };
+        localFinalUrl = project.finalUrl || "";
       }
     } catch {
-      setOverlays(defaultOverlays);
+      // Local cache is optional; Railway Postgres is the primary project store.
     }
 
-    setProjectLoaded(true);
+    setSceneStates(localStates);
+    setOverlays(localOverlays);
+    setFinalUrl(localFinalUrl);
+
+    void (async () => {
+      try {
+        const response = await fetch(`/api/project?episodeId=${encodeURIComponent(episode.id)}`, { cache: "no-store" });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Could not load Railway project data");
+        if (cancelled) return;
+
+        const dbStates: Record<number, SceneState> = {};
+        const dbOverlays: Record<number, OverlayConfig> = { ...defaultOverlays };
+        for (const row of (data.scenes || []) as DatabaseScene[]) {
+          const index = Number(row.scene_index);
+          if (!Number.isInteger(index) || index < 0 || index >= episode.scenes.length) continue;
+          if (row.video_url) {
+            dbStates[index] = {
+              status: "done",
+              videoUrl: row.video_url,
+              requestId: row.request_id || undefined,
+              persisted: Boolean(row.persisted),
+            };
+          }
+          dbOverlays[index] = {
+            text: row.overlay_text ?? defaultOverlays[index].text,
+            position: ["top", "middle", "bottom"].includes(row.overlay_position || "")
+              ? (row.overlay_position as OverlayPosition)
+              : defaultOverlays[index].position,
+            start: Number(row.overlay_start ?? defaultOverlays[index].start),
+            end: Number(row.overlay_end || defaultOverlays[index].end),
+          };
+        }
+        setSceneStates((prev) => ({ ...prev, ...dbStates }));
+        setOverlays((prev) => ({ ...prev, ...dbOverlays }));
+        setFinalUrl(data.finalUrl || "");
+        setStorageError("");
+      } catch (error) {
+        if (!cancelled) {
+          setStorageError(`${error instanceof Error ? error.message : "Railway project storage unavailable"} Local device cache is being used until Postgres is connected.`);
+        }
+      } finally {
+        if (!cancelled) setProjectLoaded(true);
+      }
+    })();
+
     void loadBalance();
-  }, [episode.id, projectStorageKey]);
+    return () => {
+      cancelled = true;
+    };
+  }, [episode.id, episode.scenes, projectStorageKey]);
 
   useEffect(() => {
     if (!projectLoaded) return;
@@ -114,7 +171,6 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
     if (!file) return;
     setUploading(character);
     setUploadError("");
-
     try {
       const formData = new FormData();
       formData.append("file", file);
@@ -141,26 +197,18 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
 
     if (!response.ok) {
       setStorageError(data.error || "Permanent storage is not configured.");
-      setSceneStates((prev) => ({
-        ...prev,
-        [index]: { status: "done", videoUrl: sourceUrl, requestId, persisted: false },
-      }));
+      setSceneStates((prev) => ({ ...prev, [index]: { status: "done", videoUrl: sourceUrl, requestId, persisted: false } }));
       return;
     }
 
     setStorageError("");
-    setSceneStates((prev) => ({
-      ...prev,
-      [index]: { status: "done", videoUrl: data.url, requestId, persisted: true },
-    }));
+    setSceneStates((prev) => ({ ...prev, [index]: { status: "done", videoUrl: data.url, requestId, persisted: true } }));
   }
 
   async function pollForResult(index: number, requestId: string, selectedModel: string) {
     for (let attempt = 0; attempt < 180; attempt += 1) {
       await sleep(3000);
-      const response = await fetch(`/api/generate-video?requestId=${encodeURIComponent(requestId)}&model=${encodeURIComponent(selectedModel)}`, {
-        cache: "no-store",
-      });
+      const response = await fetch(`/api/generate-video?requestId=${encodeURIComponent(requestId)}&model=${encodeURIComponent(selectedModel)}`, { cache: "no-store" });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not check generation status");
 
@@ -169,11 +217,19 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
         void loadBalance();
         return;
       }
-
       setSceneStates((prev) => ({ ...prev, [index]: { ...prev[index], status: "generating", requestId } }));
     }
-
     throw new Error("Generation is still running. Try Generate Scene again in a moment to start a new job.");
+  }
+
+  function clearSavedFinal() {
+    setFinalUrl("");
+    setFinalError("");
+    void fetch("/api/project", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "clear-final", episodeId: episode.id }),
+    }).catch(() => undefined);
   }
 
   async function generateScene(index: number) {
@@ -182,15 +238,11 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
     const selectedModel = model;
 
     if (imageUrls.length < 2) {
-      setSceneStates((prev) => ({
-        ...prev,
-        [index]: { status: "error", error: "Upload both approved cartoon references for Joe and Danda before generating this scene." },
-      }));
+      setSceneStates((prev) => ({ ...prev, [index]: { status: "error", error: "Upload both approved cartoon references for Joe and Danda before generating this scene." } }));
       return;
     }
 
-    setFinalUrl("");
-    setFinalError("");
+    clearSavedFinal();
     setSceneStates((prev) => ({ ...prev, [index]: { status: "queued" } }));
 
     try {
@@ -208,41 +260,46 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Generation failed");
       if (!data.requestId) throw new Error("fal did not return a request ID");
-
       setSceneStates((prev) => ({ ...prev, [index]: { status: "generating", requestId: data.requestId } }));
       await pollForResult(index, data.requestId, selectedModel);
     } catch (error) {
-      setSceneStates((prev) => ({
-        ...prev,
-        [index]: { status: "error", error: error instanceof Error ? error.message : "Generation failed" },
-      }));
+      setSceneStates((prev) => ({ ...prev, [index]: { status: "error", error: error instanceof Error ? error.message : "Generation failed" } }));
       void loadBalance();
     }
   }
 
   function updateOverlay(index: number, patch: Partial<OverlayConfig>) {
-    setOverlays((prev) => ({
-      ...prev,
-      [index]: {
-        text: "",
-        position: "bottom",
-        start: 0,
-        end: episode.scenes[index].duration,
-        ...(prev[index] || {}),
-        ...patch,
-      },
-    }));
-    setFinalUrl("");
+    const current = overlays[index] || { text: "", position: "bottom" as OverlayPosition, start: 0, end: episode.scenes[index].duration };
+    const next = { ...current, ...patch };
+    setOverlays((prev) => ({ ...prev, [index]: next }));
+    clearSavedFinal();
+
+    if (overlayTimers.current[index]) clearTimeout(overlayTimers.current[index]);
+    overlayTimers.current[index] = setTimeout(() => {
+      void fetch("/api/project", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ episodeId: episode.id, sceneIndex: index, ...next }),
+      }).then(async (response) => {
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          throw new Error(data.error || "Could not save overlay to Railway Postgres");
+        }
+        setStorageError("");
+      }).catch((error) => {
+        setStorageError(error instanceof Error ? error.message : "Could not save overlay to Railway Postgres");
+      });
+    }, 500);
   }
 
   const allScenesReady = useMemo(
-    () => episode.scenes.every((_, index) => sceneStates[index]?.status === "done" && Boolean(sceneStates[index]?.videoUrl)),
+    () => episode.scenes.every((_, index) => sceneStates[index]?.status === "done" && Boolean(sceneStates[index]?.videoUrl) && sceneStates[index]?.persisted === true),
     [episode.scenes, sceneStates],
   );
 
   async function buildFinalVideo() {
     if (!allScenesReady) {
-      setFinalError("Generate and approve every scene before building the final episode.");
+      setFinalError("Generate and permanently save every scene before building the final episode.");
       return;
     }
 
@@ -256,7 +313,6 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
         start: overlays[index]?.start ?? 0,
         end: overlays[index]?.end ?? scene.duration,
       }));
-
       const response = await fetch("/api/render-episode", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -301,6 +357,7 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
           <h2>Joe + Danda references</h2>
           <p>Use the final cartoon character images here. Once uploaded, they are remembered and reused automatically across every episode on this device.</p>
           <p className="statusText">Silent-cartoon format is locked: no AI dialogue or generated text. Studio overlays are added after the scenes are approved.</p>
+          <p className="statusText">Production storage: Railway Postgres saves the project data and Cloudflare R2 saves the actual video files.</p>
           <p className="statusText">Do not upload real-person source photos here. Seedance can reject them. Upload only the approved cartoon Joe and Danda assets.</p>
           {uploadError && <p className="errorText">{uploadError}</p>}
           {storageError && <p className="errorText">{storageError}</p>}
@@ -346,8 +403,8 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
 
               {state.status === "queued" && <p className="statusText">Submitting to fal queue…</p>}
               {state.status === "generating" && <p className="statusText">Generating on fal… this page will update automatically.</p>}
-              {state.status === "saving" && <p className="statusText">Generation complete. Saving the scene permanently…</p>}
-              {state.status === "done" && <p className={state.persisted ? "savedText" : "errorText"}>{state.persisted ? "✓ Saved permanently" : "⚠ Showing fal copy; permanent storage still needs Vercel Blob"}</p>}
+              {state.status === "saving" && <p className="statusText">Generation complete. Saving scene to Cloudflare R2 + Railway Postgres…</p>}
+              {state.status === "done" && <p className={state.persisted ? "savedText" : "errorText"}>{state.persisted ? "✓ Saved permanently to R2" : "⚠ Showing fal copy; R2/Postgres storage is not ready"}</p>}
               {state.error && <p className="errorText">{state.error}</p>}
 
               <div className="overlayEditor">
@@ -383,15 +440,15 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
       <section className="finalBuilder">
         <span className="eyebrow">FINAL EPISODE</span>
         <h2>Build the finished short</h2>
-        <p>Once every scene is approved, Studio stitches them in order, burns in your timed text overlays, keeps the scene audio and sound effects, and saves one final vertical MP4.</p>
+        <p>Once every scene is approved and saved to R2, Studio stitches them in order, burns in your timed text overlays, keeps the scene audio and sound effects, and saves one final vertical MP4 back to R2.</p>
         <button disabled={!allScenesReady || renderingFinal} onClick={() => void buildFinalVideo()}>
           {renderingFinal ? "Rendering Final Video…" : "Build Final Video"}
         </button>
-        {!allScenesReady && <p className="statusText">Generate all {episode.scenes.length} scenes to unlock final rendering.</p>}
+        {!allScenesReady && <p className="statusText">Generate and permanently save all {episode.scenes.length} scenes to unlock final rendering.</p>}
         {finalError && <p className="errorText">{finalError}</p>}
         {finalUrl && (
           <div className="finalResult">
-            <p className="savedText">✓ Final episode saved permanently</p>
+            <p className="savedText">✓ Final episode saved permanently to R2 + Railway Postgres</p>
             <video className="finalVideo" src={finalUrl} controls playsInline />
             <a className="downloadLink" href={finalUrl} target="_blank" rel="noreferrer">Open final MP4</a>
           </div>
