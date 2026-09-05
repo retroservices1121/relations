@@ -7,12 +7,14 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { dbConfigured, saveFinalVideo } from "@/lib/db";
 import { putR2Object, r2Configured } from "@/lib/r2";
+import { generateSoundtrackedVideo } from "@/lib/soundtrack";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
 const execFileAsync = promisify(execFile);
 const ffmpegPath = process.env.FFMPEG_PATH || "ffmpeg";
+const ffprobePath = process.env.FFPROBE_PATH || "ffprobe";
 
 type OverlayPosition = "top" | "middle" | "bottom";
 type TimedOverlay = { text: string; start: number; end: number; position: OverlayPosition };
@@ -104,6 +106,22 @@ async function downloadFile(url: string, outputPath: string) {
   await fs.writeFile(outputPath, Buffer.from(await response.arrayBuffer()));
 }
 
+async function probeDuration(filePath: string) {
+  const { stdout } = await execFileAsync(ffprobePath, [
+    "-v", "error",
+    "-show_entries", "format=duration",
+    "-of", "default=noprint_wrappers=1:nokey=1",
+    filePath,
+  ]);
+  const duration = Number(String(stdout).trim());
+  if (!Number.isFinite(duration) || duration <= 0) throw new Error("Could not determine scene duration for soundtrack generation.");
+  return Math.min(30, duration);
+}
+
+function alreadyHasStudioSoundtrack(url: string) {
+  return url.includes("/soundtracks/");
+}
+
 function isRenderScene(scene: unknown): scene is RenderScene {
   if (!scene || typeof scene !== "object") return false;
   const candidate = scene as { videoUrl?: unknown };
@@ -139,6 +157,15 @@ export async function POST(request: Request) {
       const outputPath = path.join(workDir, `part-${index}.mp4`);
       await downloadFile(scene.videoUrl, inputPath);
 
+      let renderInputPath = inputPath;
+      if (!alreadyHasStudioSoundtrack(scene.videoUrl)) {
+        const duration = await probeDuration(inputPath);
+        const soundtrack = await generateSoundtrackedVideo(scene.videoUrl, duration);
+        const soundtrackPath = path.join(workDir, `soundtracked-${index}.mp4`);
+        await downloadFile(soundtrack.videoUrl, soundtrackPath);
+        renderInputPath = soundtrackPath;
+      }
+
       const timedOverlays = parseTimedOverlays(scene);
       if (timedOverlays.length) {
         const overlayPaths: string[] = [];
@@ -148,7 +175,7 @@ export async function POST(request: Request) {
           overlayPaths.push(overlayPath);
         }
 
-        const args = ["-y", "-i", inputPath];
+        const args = ["-y", "-i", renderInputPath];
         for (const overlayPath of overlayPaths) args.push("-loop", "1", "-i", overlayPath);
 
         const filters = ["[0:v]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280[v0]"];
@@ -167,7 +194,7 @@ export async function POST(request: Request) {
         await execFileAsync(ffmpegPath, args);
       } else {
         await execFileAsync(ffmpegPath, [
-          "-y", "-i", inputPath,
+          "-y", "-i", renderInputPath,
           "-vf", "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280",
           "-map", "0:v:0", "-map", "0:a?",
           "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
@@ -192,11 +219,11 @@ export async function POST(request: Request) {
     const stored = await putR2Object(key, finalBytes, "video/mp4");
     await saveFinalVideo(episodeId, stored.url);
 
-    return NextResponse.json({ url: stored.url, key: stored.key, rendered: true });
+    return NextResponse.json({ url: stored.url, key: stored.key, rendered: true, soundtrackGuaranteed: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not render final episode.";
-    const friendly = message.includes("ENOENT") && message.includes("ffmpeg")
-      ? "FFmpeg is not installed in the Railway deploy image. Add RAILPACK_DEPLOY_APT_PACKAGES=ffmpeg to the Relations service variables and redeploy."
+    const friendly = message.includes("ENOENT") && (message.includes("ffmpeg") || message.includes("ffprobe"))
+      ? "FFmpeg/ffprobe is not installed in the Railway deploy image. Add RAILPACK_DEPLOY_APT_PACKAGES=ffmpeg to the Relations service variables and redeploy."
       : message;
     return NextResponse.json({ error: friendly }, { status: 500 });
   } finally {
