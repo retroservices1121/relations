@@ -19,7 +19,9 @@ ABSOLUTELY AVOID: 3D or CGI appearance, Pixar-like rendering, polished animated-
 
 THIS VIDEO IS GENERATED SILENT FOR POST-PRODUCTION SOUND DESIGN. Do not perform dialogue. Do not act as though speaking. Joe and Danda communicate only through eyes, eyebrows, head movement, hands, gestures, posture and physical comedy.
 
-MOUTH ANIMATION IS LOCKED: Joe and Danda are SILENT characters. Their mouths must NEVER flap, articulate syllables, lip-sync, silently mouth words, or perform speech-like jaw movement. Keep mouths closed or in a single held non-speaking expression for each reaction. Mouth shape may change only as a quick visual facial expression such as a smile, frown, gasp or laugh reaction, never as continuous talking animation.
+MOUTH ANIMATION IS STRICTLY LOCKED: Joe and Danda are SILENT characters. Keep both mouths CLOSED and visually STILL throughout the entire shot. Do not open the mouth for surprise, laughter, gasps, effort, frustration or any reaction. Do not animate the jaw. Do not flap lips, articulate syllables, lip-sync, silently mouth words, form speech shapes, chatter teeth, chew, breathe visibly through the mouth or create any repeated mouth movement. Facial acting must come from the eyes, eyebrows, cheeks, head angle and body pose while the mouth remains a single closed held expression. A closed-mouth smile or closed-mouth frown is allowed, but once established it should remain held rather than continuously changing.
+
+NO CONVERSATIONAL ACTING: avoid speech-like hand timing, back-and-forth conversational gestures, pointing combined with mouth movement, or pauses that look like a character is delivering a line. Treat both characters as silent visual mimes in every scene.
 
 Do not generate captions, subtitles, speech bubbles, signs, labels, written dialogue or other on-screen text. All text overlays and all audio are added later in Studio.`;
 
