@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Episode } from "../data/episodes";
 
 type SceneState = {
@@ -10,13 +10,56 @@ type SceneState = {
   requestId?: string;
 };
 
+type CharacterKey = "joe" | "danda";
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const JOE_STORAGE_KEY = "relations:character:joe";
+const DANDA_STORAGE_KEY = "relations:character:danda";
 
 export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
   const [joeUrl, setJoeUrl] = useState("");
   const [dandaUrl, setDandaUrl] = useState("");
   const [model, setModel] = useState("seedance-fast");
   const [sceneStates, setSceneStates] = useState<Record<number, SceneState>>({});
+  const [uploading, setUploading] = useState<CharacterKey | null>(null);
+  const [uploadError, setUploadError] = useState("");
+
+  useEffect(() => {
+    setJoeUrl(localStorage.getItem(JOE_STORAGE_KEY) || "");
+    setDandaUrl(localStorage.getItem(DANDA_STORAGE_KEY) || "");
+  }, []);
+
+  function persistReference(character: CharacterKey, url: string) {
+    if (character === "joe") {
+      setJoeUrl(url);
+      if (url) localStorage.setItem(JOE_STORAGE_KEY, url);
+      else localStorage.removeItem(JOE_STORAGE_KEY);
+    } else {
+      setDandaUrl(url);
+      if (url) localStorage.setItem(DANDA_STORAGE_KEY, url);
+      else localStorage.removeItem(DANDA_STORAGE_KEY);
+    }
+  }
+
+  async function uploadReference(character: CharacterKey, file?: File) {
+    if (!file) return;
+    setUploading(character);
+    setUploadError("");
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await fetch("/api/upload-reference", { method: "POST", body: formData });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Upload failed");
+      if (!data.url) throw new Error("Upload completed without a file URL");
+      persistReference(character, data.url);
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : "Upload failed");
+    } finally {
+      setUploading(null);
+    }
+  }
 
   async function pollForResult(index: number, requestId: string, selectedModel: string) {
     for (let attempt = 0; attempt < 180; attempt += 1) {
@@ -90,10 +133,31 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
       </div>
 
       <section className="referencePanel">
-        <div><h2>Character references</h2><p>Use public image URLs for the locked Joe and Danda character sheets.</p></div>
+        <div>
+          <h2>Character references</h2>
+          <p>Upload Joe and Danda once. Their hosted references are remembered and reused automatically across episodes on this device.</p>
+          {uploadError && <p className="errorText">{uploadError}</p>}
+        </div>
         <div className="referenceInputs">
-          <label>Joe reference URL<input value={joeUrl} onChange={(e) => setJoeUrl(e.target.value)} placeholder="https://.../joe.png" /></label>
-          <label>Danda reference URL<input value={dandaUrl} onChange={(e) => setDandaUrl(e.target.value)} placeholder="https://.../danda.png" /></label>
+          <div className="characterRef">
+            <label>Joe reference</label>
+            {joeUrl && <img className="referenceThumb" src={joeUrl} alt="Joe reference" />}
+            <label className="uploadButton">
+              {uploading === "joe" ? "Uploading Joe…" : joeUrl ? "Replace Joe Image" : "Upload Joe Image"}
+              <input type="file" accept="image/*" disabled={uploading !== null} onChange={(e) => uploadReference("joe", e.target.files?.[0])} />
+            </label>
+            <input value={joeUrl} onChange={(e) => persistReference("joe", e.target.value)} placeholder="Or paste a public Joe image URL" />
+          </div>
+
+          <div className="characterRef">
+            <label>Danda reference</label>
+            {dandaUrl && <img className="referenceThumb" src={dandaUrl} alt="Danda reference" />}
+            <label className="uploadButton">
+              {uploading === "danda" ? "Uploading Danda…" : dandaUrl ? "Replace Danda Image" : "Upload Danda Image"}
+              <input type="file" accept="image/*" disabled={uploading !== null} onChange={(e) => uploadReference("danda", e.target.files?.[0])} />
+            </label>
+            <input value={dandaUrl} onChange={(e) => persistReference("danda", e.target.value)} placeholder="Or paste a public Danda image URL" />
+          </div>
         </div>
       </section>
 
