@@ -17,7 +17,11 @@ ANIMATION STYLE IS LOCKED: limited-animation 2D social-media cartoon. Snappy pos
 
 ABSOLUTELY AVOID: 3D or CGI appearance, Pixar-like rendering, polished animated-feature look, glossy digital illustration, realistic skin, pores, realistic hair strands, realistic fabric, complex textures, realistic lighting, dramatic shadows, rim lighting, volumetric lighting, depth of field, bokeh, lens effects, cinematic color grading, painterly rendering, anime rendering, photorealism, hyper-detailed environments, elaborate camera moves, generic replacement faces, face drift, beard removal, hairstyle changes or body-type changes.
 
-AUDIO FORMAT IS LOCKED: GENERATE NO AUDIO AT ALL. NO SPOKEN DIALOGUE. NO TALKING. NO VOICES. NO VOCALS. NO LIP-SYNCED SPEECH. NO BACKGROUND CONVERSATION. NO MUSIC. Characters communicate only through expressions, gestures, body language and physical comedy. Sound effects and text overlays will be added later in Studio/post-production. Do not generate captions, subtitles, speech bubbles, signs, labels, written dialogue or other on-screen text.`;
+AUDIO IS REQUIRED, BUT SPEECH IS FORBIDDEN. Generate a lively finished cartoon soundtrack with light playful instrumental background music, environmental ambience and synchronized cartoon sound effects that match visible actions: footsteps, clothing movement, doors, objects, phone taps, clock ticks, whooshes, pops, swishes, comedic stings and reaction accents when appropriate. MUSIC MUST BE INSTRUMENTAL ONLY. NO HUMAN VOICES. NO SPOKEN WORDS. NO DIALOGUE. NO WHISPERS. NO MUMBLING. NO VOCALS. NO SINGING. NO BACKGROUND CONVERSATION. NO NARRATION.
+
+MOUTH ANIMATION IS LOCKED: Joe and Danda are SILENT characters. Their mouths must NEVER flap, articulate syllables, lip-sync, silently mouth words, or perform speech-like jaw movement. Keep mouths closed or in a single held non-speaking expression for each reaction. Mouth shape may change only as a quick visual facial expression such as a smile, frown, gasp or laugh reaction, never as continuous talking animation. Communication happens only through eyes, eyebrows, head movement, hands, gestures, posture and physical comedy.
+
+Do not generate captions, subtitles, speech bubbles, signs, labels, written dialogue or other on-screen text. All text overlays are added later in Studio.`;
 
 function endpointFor(model: string) {
   return model === "seedance-standard"
@@ -92,7 +96,7 @@ export async function POST(request: Request) {
         resolution: "720p",
         duration: String(safeDuration),
         aspect_ratio: "9:16",
-        generate_audio: false,
+        generate_audio: true,
         bitrate_mode: "standard",
       },
     });
