@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { put } from "@vercel/blob";
 import ffmpegPath from "ffmpeg-static";
 import sharp from "sharp";
 import { execFile } from "node:child_process";
@@ -7,6 +6,8 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { dbConfigured, saveFinalVideo } from "@/lib/db";
+import { putR2Object, r2Configured } from "@/lib/r2";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -66,9 +67,7 @@ async function makeOverlayPng(text: string, position: OverlayPosition, outputPat
   const svg = `
     <svg width="720" height="1280" xmlns="http://www.w3.org/2000/svg">
       <rect width="720" height="1280" fill="transparent"/>
-      <g>
-        <text x="360" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="54" font-weight="800" fill="white" stroke="black" stroke-width="10" paint-order="stroke" stroke-linejoin="round">${tspans}</text>
-      </g>
+      <text x="360" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="54" font-weight="800" fill="white" stroke="black" stroke-width="10" paint-order="stroke" stroke-linejoin="round">${tspans}</text>
     </svg>`;
 
   await sharp(Buffer.from(svg)).png().toFile(outputPath);
@@ -83,14 +82,12 @@ async function downloadFile(url: string, outputPath: string) {
 export async function POST(request: Request) {
   let workDir = "";
   try {
-    if (!ffmpegPath) {
-      return NextResponse.json({ error: "FFmpeg is unavailable on this deployment." }, { status: 500 });
+    if (!ffmpegPath) return NextResponse.json({ error: "FFmpeg is unavailable on this deployment." }, { status: 500 });
+    if (!r2Configured()) {
+      return NextResponse.json({ error: "Final export requires Cloudflare R2. Add the R2 environment variables to Railway." }, { status: 503 });
     }
-    if (!process.env.BLOB_READ_WRITE_TOKEN) {
-      return NextResponse.json(
-        { error: "Final export requires Vercel Blob storage. Connect a Blob store so BLOB_READ_WRITE_TOKEN is available." },
-        { status: 503 },
-      );
+    if (!dbConfigured()) {
+      return NextResponse.json({ error: "Final export requires Railway Postgres. DATABASE_URL is not configured." }, { status: 503 });
     }
 
     const body = await request.json();
@@ -120,34 +117,19 @@ export async function POST(request: Request) {
         const end = Number.isFinite(endValue) && endValue > start ? endValue : 999;
         const filter = `[0:v]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280[v0];[v0][1:v]overlay=0:0:enable='between(t,${start},${end})'[v]`;
         await execFileAsync(ffmpegPath, [
-          "-y",
-          "-i", inputPath,
-          "-loop", "1",
-          "-i", overlayPath,
+          "-y", "-i", inputPath, "-loop", "1", "-i", overlayPath,
           "-filter_complex", filter,
-          "-map", "[v]",
-          "-map", "0:a?",
-          "-c:v", "libx264",
-          "-preset", "veryfast",
-          "-crf", "20",
-          "-c:a", "aac",
-          "-shortest",
-          "-movflags", "+faststart",
-          outputPath,
+          "-map", "[v]", "-map", "0:a?",
+          "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+          "-c:a", "aac", "-shortest", "-movflags", "+faststart", outputPath,
         ]);
       } else {
         await execFileAsync(ffmpegPath, [
-          "-y",
-          "-i", inputPath,
+          "-y", "-i", inputPath,
           "-vf", "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280",
-          "-map", "0:v:0",
-          "-map", "0:a?",
-          "-c:v", "libx264",
-          "-preset", "veryfast",
-          "-crf", "20",
-          "-c:a", "aac",
-          "-movflags", "+faststart",
-          outputPath,
+          "-map", "0:v:0", "-map", "0:a?",
+          "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+          "-c:a", "aac", "-movflags", "+faststart", outputPath,
         ]);
       }
 
@@ -159,24 +141,16 @@ export async function POST(request: Request) {
     const finalPath = path.join(workDir, "final.mp4");
 
     await execFileAsync(ffmpegPath, [
-      "-y",
-      "-f", "concat",
-      "-safe", "0",
-      "-i", concatFile,
-      "-c", "copy",
-      "-movflags", "+faststart",
-      finalPath,
+      "-y", "-f", "concat", "-safe", "0", "-i", concatFile,
+      "-c", "copy", "-movflags", "+faststart", finalPath,
     ]);
 
     const finalBytes = await fs.readFile(finalPath);
-    const timestamp = Date.now();
-    const blob = await put(`relations/${cleanPart(episodeId)}/final/final-${timestamp}.mp4`, finalBytes, {
-      access: "public",
-      contentType: "video/mp4",
-      addRandomSuffix: false,
-    });
+    const key = `relations/${cleanPart(episodeId)}/final/final-${Date.now()}.mp4`;
+    const stored = await putR2Object(key, finalBytes, "video/mp4");
+    await saveFinalVideo(episodeId, stored.url);
 
-    return NextResponse.json({ url: blob.url, pathname: blob.pathname, rendered: true });
+    return NextResponse.json({ url: stored.url, key: stored.key, rendered: true });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Could not render final episode." },
