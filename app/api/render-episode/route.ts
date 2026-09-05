@@ -161,7 +161,7 @@ export async function POST(request: Request) {
         args.push(
           "-filter_complex", filters.join(";"),
           "-map", "[v]", "-map", "0:a?",
-          "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+          "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
           "-c:a", "aac", "-shortest", "-movflags", "+faststart", outputPath,
         );
         await execFileAsync(ffmpegPath, args);
@@ -170,7 +170,7 @@ export async function POST(request: Request) {
           "-y", "-i", inputPath,
           "-vf", "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280",
           "-map", "0:v:0", "-map", "0:a?",
-          "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+          "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
           "-c:a", "aac", "-movflags", "+faststart", outputPath,
         ]);
       }
