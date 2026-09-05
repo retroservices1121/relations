@@ -9,20 +9,40 @@ function endpointFor(model: string) {
     : "bytedance/seedance-2.0/fast/reference-to-video";
 }
 
-function readableError(error: unknown, fallback: string) {
+function errorPayload(error: unknown, fallback: string) {
+  let raw = fallback;
+
   if (error && typeof error === "object") {
     const maybe = error as { message?: string; body?: unknown; response?: { data?: unknown } };
     const details = maybe.body ?? maybe.response?.data;
+
     if (details) {
       try {
-        return `${maybe.message || fallback}: ${JSON.stringify(details)}`;
+        raw = `${maybe.message || fallback}: ${JSON.stringify(details)}`;
       } catch {
-        return maybe.message || fallback;
+        raw = maybe.message || fallback;
       }
+    } else if (maybe.message) {
+      raw = maybe.message;
     }
-    if (maybe.message) return maybe.message;
   }
-  return fallback;
+
+  const normalized = raw.toLowerCase();
+  const realPersonBlocked =
+    normalized.includes("likenesses of real people") ||
+    normalized.includes("likeness of real people") ||
+    normalized.includes("private information") ||
+    normalized.includes("real people");
+
+  if (realPersonBlocked) {
+    return {
+      error: "Seedance blocked this reference because it appears to contain a real person. Use the approved cartoon Joe and Danda character images instead of source photos.",
+      code: "REAL_PERSON_REFERENCE_BLOCKED",
+      status: 422,
+    };
+  }
+
+  return { error: raw, code: "GENERATION_ERROR", status: 500 };
 }
 
 export async function POST(request: Request) {
@@ -38,8 +58,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "A scene prompt is required." }, { status: 400 });
     }
 
-    if (!Array.isArray(imageUrls) || imageUrls.length === 0) {
-      return NextResponse.json({ error: "At least one Joe or Danda reference image URL is required." }, { status: 400 });
+    if (!Array.isArray(imageUrls) || imageUrls.length < 2) {
+      return NextResponse.json(
+        { error: "Upload both approved cartoon character references for Joe and Danda before generating a scene." },
+        { status: 400 },
+      );
     }
 
     const endpoint = endpointFor(model);
@@ -59,7 +82,8 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ requestId: submission.request_id, model, status: "queued" });
   } catch (error) {
-    return NextResponse.json({ error: readableError(error, "Video generation failed.") }, { status: 500 });
+    const payload = errorPayload(error, "Video generation failed.");
+    return NextResponse.json({ error: payload.error, code: payload.code }, { status: payload.status });
   }
 }
 
@@ -93,6 +117,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ requestId, status: "COMPLETED", videoUrl: data.video.url, seed: data.seed });
   } catch (error) {
-    return NextResponse.json({ error: readableError(error, "Could not check video generation status.") }, { status: 500 });
+    const payload = errorPayload(error, "Could not check video generation status.");
+    return NextResponse.json({ error: payload.error, code: payload.code }, { status: payload.status });
   }
 }
