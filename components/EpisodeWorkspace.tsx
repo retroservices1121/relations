@@ -101,6 +101,15 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
     const scene = episode.scenes[index];
     const imageUrls = [joeUrl, dandaUrl].map((v) => v.trim()).filter(Boolean);
     const selectedModel = model;
+
+    if (imageUrls.length < 2) {
+      setSceneStates((prev) => ({
+        ...prev,
+        [index]: { status: "error", error: "Upload both approved cartoon references for Joe and Danda before generating this scene." },
+      }));
+      return;
+    }
+
     setSceneStates((prev) => ({ ...prev, [index]: { status: "queued" } }));
 
     try {
@@ -111,7 +120,7 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
           model: selectedModel,
           duration: scene.duration,
           imageUrls,
-          prompt: `Use the recurring cartoon couple exactly as shown in the references. @Image1 is Joe when supplied first. @Image2 is Danda when supplied second. Preserve their faces, hairstyles, body proportions and overall 2D cartoon design. Vertical 9:16 relationship-comedy short. Scene action: ${scene.prompt}${scene.caption ? ` On-screen caption: ${scene.caption}` : ""}`,
+          prompt: `Use the approved recurring cartoon character assets exactly as shown in the references. @Image1 is Joe. @Image2 is Danda. Preserve their faces, hairstyles, body proportions, clothing identity and overall 2D cartoon design. Do not reinterpret them as photorealistic people. Vertical 9:16 relationship-comedy short. Scene action: ${scene.prompt}${scene.caption ? ` On-screen caption: ${scene.caption}` : ""}`,
         }),
       });
 
@@ -155,30 +164,31 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
 
       <section className="referencePanel">
         <div>
-          <h2>Character references</h2>
-          <p>Upload Joe and Danda once. Their hosted references are remembered and reused automatically across episodes on this device.</p>
-          <p className="statusText">Supported: JPG, PNG, WebP. iPhone HEIC/HEIF must be converted first.</p>
+          <span className="eyebrow">LOCKED CHARACTER LIBRARY</span>
+          <h2>Joe + Danda references</h2>
+          <p>Use the final cartoon character images here. Once uploaded, they are remembered and reused automatically across every episode on this device.</p>
+          <p className="statusText">Do not upload real-person source photos here. Seedance can reject them. Upload only the approved cartoon Joe and Danda assets.</p>
           {uploadError && <p className="errorText">{uploadError}</p>}
         </div>
         <div className="referenceInputs">
           <div className="characterRef">
-            <label>Joe reference</label>
-            {joeUrl && <img className="referenceThumb" src={joeUrl} alt="Joe reference" />}
+            <label>Joe cartoon reference {joeUrl && "✓ Locked"}</label>
+            {joeUrl && <img className="referenceThumb" src={joeUrl} alt="Joe cartoon reference" />}
             <label className="uploadButton">
-              {uploading === "joe" ? "Uploading Joe…" : joeUrl ? "Replace Joe Image" : "Upload Joe Image"}
+              {uploading === "joe" ? "Uploading Joe…" : joeUrl ? "Replace Joe Cartoon" : "Upload Joe Cartoon"}
               <input type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading !== null} onChange={(e) => uploadReference("joe", e.target.files?.[0])} />
             </label>
-            <input value={joeUrl} onChange={(e) => persistReference("joe", e.target.value)} placeholder="Or paste a public Joe image URL" />
+            <input value={joeUrl} onChange={(e) => persistReference("joe", e.target.value)} placeholder="Or paste the approved Joe cartoon URL" />
           </div>
 
           <div className="characterRef">
-            <label>Danda reference</label>
-            {dandaUrl && <img className="referenceThumb" src={dandaUrl} alt="Danda reference" />}
+            <label>Danda cartoon reference {dandaUrl && "✓ Locked"}</label>
+            {dandaUrl && <img className="referenceThumb" src={dandaUrl} alt="Danda cartoon reference" />}
             <label className="uploadButton">
-              {uploading === "danda" ? "Uploading Danda…" : dandaUrl ? "Replace Danda Image" : "Upload Danda Image"}
+              {uploading === "danda" ? "Uploading Danda…" : dandaUrl ? "Replace Danda Cartoon" : "Upload Danda Cartoon"}
               <input type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading !== null} onChange={(e) => uploadReference("danda", e.target.files?.[0])} />
             </label>
-            <input value={dandaUrl} onChange={(e) => persistReference("danda", e.target.value)} placeholder="Or paste a public Danda image URL" />
+            <input value={dandaUrl} onChange={(e) => persistReference("danda", e.target.value)} placeholder="Or paste the approved Danda cartoon URL" />
           </div>
         </div>
       </section>
