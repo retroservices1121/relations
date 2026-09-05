@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import ffmpegPath from "ffmpeg-static";
 import sharp from "sharp";
 import { execFile } from "node:child_process";
 import { promises as fs } from "node:fs";
@@ -13,6 +12,7 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 
 const execFileAsync = promisify(execFile);
+const ffmpegPath = process.env.FFMPEG_PATH || "ffmpeg";
 
 type OverlayPosition = "top" | "middle" | "bottom";
 type RenderScene = {
@@ -88,7 +88,6 @@ function isRenderScene(scene: unknown): scene is RenderScene {
 export async function POST(request: Request) {
   let workDir = "";
   try {
-    if (!ffmpegPath) return NextResponse.json({ error: "FFmpeg is unavailable on this deployment." }, { status: 500 });
     if (!r2Configured()) {
       return NextResponse.json({ error: "Final export requires Cloudflare R2. Add the R2 environment variables to Railway." }, { status: 503 });
     }
@@ -159,10 +158,11 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ url: stored.url, key: stored.key, rendered: true });
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Could not render final episode." },
-      { status: 500 },
-    );
+    const message = error instanceof Error ? error.message : "Could not render final episode.";
+    const friendly = message.includes("ENOENT") && message.includes("ffmpeg")
+      ? "FFmpeg is not installed in the Railway deploy image. Add RAILPACK_DEPLOY_APT_PACKAGES=ffmpeg to the Relations service variables and redeploy."
+      : message;
+    return NextResponse.json({ error: friendly }, { status: 500 });
   } finally {
     if (workDir) await fs.rm(workDir, { recursive: true, force: true }).catch(() => undefined);
   }
