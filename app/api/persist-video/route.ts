@@ -1,12 +1,30 @@
 import { NextResponse } from "next/server";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { dbConfigured, saveSceneVideo } from "@/lib/db";
 import { putR2Object, r2Configured } from "@/lib/r2";
+import { generateSoundtrackedVideo } from "@/lib/soundtrack";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 300;
+
+const execFileAsync = promisify(execFile);
+const ffprobePath = process.env.FFPROBE_PATH || "ffprobe";
 
 function cleanPart(value: string) {
   return value.replace(/[^a-zA-Z0-9-_]/g, "-");
+}
+
+async function probeDuration(url: string) {
+  const { stdout } = await execFileAsync(ffprobePath, [
+    "-v", "error",
+    "-show_entries", "format=duration",
+    "-of", "default=noprint_wrappers=1:nokey=1",
+    url,
+  ]);
+  const duration = Number(String(stdout).trim());
+  if (!Number.isFinite(duration) || duration <= 0) throw new Error("Could not determine scene duration for soundtrack generation.");
+  return Math.min(30, duration);
 }
 
 export async function POST(request: Request) {
@@ -46,12 +64,41 @@ export async function POST(request: Request) {
     }
 
     const bytes = new Uint8Array(await source.arrayBuffer());
-    const key = `relations/${cleanPart(episodeId)}/scenes/scene-${sceneIndex + 1}-${cleanPart(requestId)}.mp4`;
-    const stored = await putR2Object(key, bytes, "video/mp4");
+    const sourceKey = `relations/${cleanPart(episodeId)}/scenes/scene-${sceneIndex + 1}-${cleanPart(requestId)}.mp4`;
+    const sourceStored = await putR2Object(sourceKey, bytes, "video/mp4");
 
-    await saveSceneVideo({ episodeId, sceneIndex, videoUrl: stored.url, requestId });
+    try {
+      const duration = await probeDuration(sourceStored.url);
+      const soundtrack = await generateSoundtrackedVideo(sourceStored.url, duration);
+      const soundtrackedResponse = await fetch(soundtrack.videoUrl, { cache: "no-store" });
+      if (!soundtrackedResponse.ok) throw new Error(`Could not download MMAudio result (${soundtrackedResponse.status}).`);
 
-    return NextResponse.json({ url: stored.url, key: stored.key, persisted: true });
+      const soundtrackedBytes = new Uint8Array(await soundtrackedResponse.arrayBuffer());
+      const soundtrackKey = `relations/${cleanPart(episodeId)}/soundtracks/scene-${sceneIndex + 1}-${cleanPart(requestId)}.mp4`;
+      const soundtrackStored = await putR2Object(soundtrackKey, soundtrackedBytes, "video/mp4");
+
+      await saveSceneVideo({ episodeId, sceneIndex, videoUrl: soundtrackStored.url, requestId });
+      return NextResponse.json({
+        url: soundtrackStored.url,
+        key: soundtrackStored.key,
+        persisted: true,
+        soundtrack: true,
+        sourceUrl: sourceStored.url,
+        soundtrackRequestId: soundtrack.requestId,
+      });
+    } catch (soundtrackError) {
+      // Preserve a completed visual even if soundtrack generation has a transient failure.
+      // Final rendering will recognize this /scenes/ URL and retry MMAudio before export.
+      await saveSceneVideo({ episodeId, sceneIndex, videoUrl: sourceStored.url, requestId });
+      return NextResponse.json({
+        url: sourceStored.url,
+        key: sourceStored.key,
+        persisted: true,
+        soundtrack: false,
+        soundtrackPending: true,
+        soundtrackError: soundtrackError instanceof Error ? soundtrackError.message : "Soundtrack generation will retry during final rendering.",
+      });
+    }
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Could not save generated video." },
