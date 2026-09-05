@@ -62,6 +62,12 @@ export async function clearFinalVideo(episodeId: string) {
   await pool().query(`INSERT INTO relations_projects (episode_id,final_url,updated_at) VALUES ($1,NULL,NOW()) ON CONFLICT (episode_id) DO UPDATE SET final_url=NULL,updated_at=NOW()`, [episodeId]);
 }
 
+export async function getBuiltEpisodeIds() {
+  await ensureSchema();
+  const result = await pool().query(`SELECT episode_id FROM relations_projects WHERE final_url IS NOT NULL AND final_url <> ''`);
+  return result.rows.map((row) => String(row.episode_id));
+}
+
 export async function loadProject(episodeId: string) {
   await ensureSchema();
   const [project, scenes] = await Promise.all([
