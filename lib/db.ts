@@ -20,6 +20,7 @@ export async function ensureSchema() {
     global.relationsSchemaReady = (async () => {
       const db = pool();
       await db.query(`CREATE TABLE IF NOT EXISTS relations_projects (episode_id TEXT PRIMARY KEY, final_url TEXT, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());`);
+      await db.query(`ALTER TABLE relations_projects ADD COLUMN IF NOT EXISTS posted BOOLEAN NOT NULL DEFAULT FALSE;`);
       await db.query(`CREATE TABLE IF NOT EXISTS relations_scenes (
         episode_id TEXT NOT NULL, scene_index INTEGER NOT NULL, video_url TEXT, source_video_url TEXT, request_id TEXT,
         persisted BOOLEAN NOT NULL DEFAULT FALSE, overlay_text TEXT NOT NULL DEFAULT '', overlay_position TEXT NOT NULL DEFAULT 'bottom',
@@ -66,6 +67,20 @@ export async function getBuiltEpisodeIds() {
   await ensureSchema();
   const result = await pool().query(`SELECT episode_id FROM relations_projects WHERE final_url IS NOT NULL AND final_url <> ''`);
   return result.rows.map((row) => String(row.episode_id));
+}
+
+export async function getPostedEpisodeIds() {
+  await ensureSchema();
+  const result = await pool().query(`SELECT episode_id FROM relations_projects WHERE posted=TRUE`);
+  return result.rows.map((row) => String(row.episode_id));
+}
+
+export async function setEpisodePosted(episodeId: string, posted: boolean) {
+  await ensureSchema();
+  await pool().query(
+    `INSERT INTO relations_projects (episode_id,posted,updated_at) VALUES ($1,$2,NOW()) ON CONFLICT (episode_id) DO UPDATE SET posted=EXCLUDED.posted,updated_at=NOW()`,
+    [episodeId, posted],
+  );
 }
 
 export async function loadProject(episodeId: string) {
