@@ -1,9 +1,12 @@
 import Link from "next/link";
-import { episodes } from "../data/episodes";
+import { episodes as baseEpisodes } from "../data/episodes";
+import { extraEpisodes } from "../data/extraEpisodes";
 import { dbConfigured, getBuiltEpisodeIds, getPostedEpisodeIds } from "../lib/db";
 import PostedToggle from "../components/PostedToggle";
 
 export const dynamic = "force-dynamic";
+
+const episodes = [...baseEpisodes, ...extraEpisodes];
 
 export default async function Home(){
   let builtIds = new Set<string>();
