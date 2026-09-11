@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { fal } from "@fal-ai/client";
+import { saveGenerationRequest } from "@/lib/db";
 
 fal.config({ credentials: process.env.FAL_KEY });
 
@@ -34,9 +35,8 @@ function errorPayload(error: unknown, fallback: string) {
   if (error && typeof error === "object") {
     const maybe = error as { message?: string; body?: unknown; response?: { data?: unknown } };
     const details = maybe.body ?? maybe.response?.data;
-    if (details) {
-      try { raw = `${maybe.message || fallback}: ${JSON.stringify(details)}`; } catch { raw = maybe.message || fallback; }
-    } else if (maybe.message) raw = maybe.message;
+    if (details) { try { raw = `${maybe.message || fallback}: ${JSON.stringify(details)}`; } catch { raw = maybe.message || fallback; } }
+    else if (maybe.message) raw = maybe.message;
   }
   const normalized = raw.toLowerCase();
   const realPersonBlocked = normalized.includes("likenesses of real people") || normalized.includes("likeness of real people") || normalized.includes("private information") || normalized.includes("real people");
@@ -51,13 +51,11 @@ export async function POST(request: Request) {
     const { prompt, imageUrls = [], duration = 5, model = "seedance-fast" } = body;
     if (!prompt || typeof prompt !== "string") return NextResponse.json({ error: "A scene prompt is required." }, { status: 400 });
     if (!Array.isArray(imageUrls) || imageUrls.length < 2) return NextResponse.json({ error: "Upload both approved cartoon character references for Joe and Danda before generating a scene." }, { status: 400 });
-
     const endpoint = endpointFor(model);
     const safeDuration = Math.max(4, Math.min(15, Number(duration) || 5));
     const lockedPrompt = `${LOCKED_VISUAL_DIRECTION}\n\nSCENE INSTRUCTIONS:\n${prompt}`;
-    const submission = await fal.queue.submit(endpoint, {
-      input: { prompt: lockedPrompt, image_urls: imageUrls.slice(0, 2), resolution: "720p", duration: String(safeDuration), aspect_ratio: "9:16", generate_audio: true, bitrate_mode: "standard" },
-    });
+    const submission = await fal.queue.submit(endpoint, { input: { prompt: lockedPrompt, image_urls: imageUrls.slice(0, 2), resolution: "720p", duration: String(safeDuration), aspect_ratio: "9:16", generate_audio: true, bitrate_mode: "standard" } });
+    await saveGenerationRequest({ requestId: submission.request_id, model, endpointId: endpoint, duration: safeDuration }).catch(() => undefined);
     return NextResponse.json({ requestId: submission.request_id, model, status: "queued" });
   } catch (error) {
     const payload = errorPayload(error, "Video generation failed.");
