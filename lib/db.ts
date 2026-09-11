@@ -27,9 +27,64 @@ export async function ensureSchema() {
         overlay_start DOUBLE PRECISION NOT NULL DEFAULT 0, overlay_end DOUBLE PRECISION NOT NULL DEFAULT 0,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY (episode_id, scene_index));`);
       await db.query(`ALTER TABLE relations_scenes ADD COLUMN IF NOT EXISTS source_video_url TEXT;`);
+      await db.query(`CREATE TABLE IF NOT EXISTS relations_generation_requests (
+        request_id TEXT PRIMARY KEY,
+        episode_id TEXT,
+        scene_index INTEGER,
+        model TEXT NOT NULL DEFAULT 'seedance-fast',
+        endpoint_id TEXT NOT NULL DEFAULT '',
+        duration DOUBLE PRECISION NOT NULL DEFAULT 0,
+        cost_usd DOUBLE PRECISION,
+        cost_source TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );`);
+      await db.query(`CREATE INDEX IF NOT EXISTS relations_generation_episode_scene_idx ON relations_generation_requests (episode_id, scene_index, created_at);`);
     })();
   }
   await global.relationsSchemaReady;
+}
+
+export async function saveGenerationRequest(input: { requestId: string; model: string; endpointId: string; duration: number }) {
+  await ensureSchema();
+  await pool().query(
+    `INSERT INTO relations_generation_requests (request_id,model,endpoint_id,duration,created_at,updated_at)
+     VALUES ($1,$2,$3,$4,NOW(),NOW()) ON CONFLICT (request_id) DO UPDATE SET
+     model=EXCLUDED.model,endpoint_id=EXCLUDED.endpoint_id,duration=EXCLUDED.duration,updated_at=NOW()`,
+    [input.requestId, input.model, input.endpointId, input.duration],
+  );
+}
+
+export async function associateGenerationRequest(input: { requestId: string; episodeId: string; sceneIndex: number }) {
+  await ensureSchema();
+  await pool().query(
+    `UPDATE relations_generation_requests SET episode_id=$2,scene_index=$3,updated_at=NOW() WHERE request_id=$1`,
+    [input.requestId, input.episodeId, input.sceneIndex],
+  );
+}
+
+export async function saveGenerationCost(input: { requestId: string; costUsd: number; source: string }) {
+  await ensureSchema();
+  await pool().query(
+    `UPDATE relations_generation_requests SET cost_usd=$2,cost_source=$3,updated_at=NOW() WHERE request_id=$1`,
+    [input.requestId, input.costUsd, input.source],
+  );
+}
+
+export async function getEpisodeGenerationRequests(episodeId: string) {
+  await ensureSchema();
+  const [attempts, currentScenes] = await Promise.all([
+    pool().query(
+      `SELECT request_id,episode_id,scene_index,model,endpoint_id,duration,cost_usd,cost_source,created_at
+       FROM relations_generation_requests WHERE episode_id=$1 ORDER BY scene_index,created_at`,
+      [episodeId],
+    ),
+    pool().query(
+      `SELECT scene_index,request_id FROM relations_scenes WHERE episode_id=$1 AND request_id IS NOT NULL ORDER BY scene_index`,
+      [episodeId],
+    ),
+  ]);
+  return { attempts: attempts.rows, currentScenes: currentScenes.rows };
 }
 
 export async function saveSceneVideo(input: { episodeId: string; sceneIndex: number; videoUrl: string; requestId: string; sourceVideoUrl?: string }) {
