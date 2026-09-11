@@ -4,7 +4,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { dbConfigured, saveSceneVideo } from "@/lib/db";
+import { associateGenerationRequest, dbConfigured, saveSceneVideo } from "@/lib/db";
 import { putR2Object, r2Configured } from "@/lib/r2";
 import { ensureHouseholdNonsenseTheme } from "@/lib/theme";
 
@@ -47,27 +47,16 @@ export async function POST(request: Request) {
     await downloadFile(themeUrl, themePath);
 
     await execFileAsync(ffmpegPath, [
-      "-y",
-      "-i", sourcePath,
-      "-stream_loop", "-1",
-      "-i", themePath,
+      "-y", "-i", sourcePath, "-stream_loop", "-1", "-i", themePath,
       "-filter_complex", "[0:a]volume=1.0[sfx];[1:a]volume=0.28[music];[sfx][music]amix=inputs=2:duration=first:dropout_transition=0[a]",
-      "-map", "0:v:0",
-      "-map", "[a]",
-      "-c:v", "copy",
-      "-c:a", "aac",
-      "-b:a", "192k",
-      "-ar", "48000",
-      "-ac", "2",
-      "-shortest",
-      "-movflags", "+faststart",
-      mixedPath,
+      "-map", "0:v:0", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2", "-shortest", "-movflags", "+faststart", mixedPath,
     ]);
 
     const mixedBytes = await fs.readFile(mixedPath);
     const key = `relations/${cleanPart(episodeId)}/scenes/scene-${sceneIndex + 1}-${cleanPart(requestId)}.mp4`;
     const stored = await putR2Object(key, mixedBytes, "video/mp4");
     await saveSceneVideo({ episodeId, sceneIndex, videoUrl: stored.url, sourceVideoUrl: sourceStored.url, requestId });
+    await associateGenerationRequest({ requestId, episodeId, sceneIndex }).catch(() => undefined);
     return NextResponse.json({ url: stored.url, key: stored.key, persisted: true, seedanceSfx: true, lockedTheme: true, sourceUrl: sourceStored.url, themeUrl });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Could not save generated video." }, { status: 500 });
