@@ -26,7 +26,7 @@ export default async function Home(){
   const postedCount = episodes.filter((episode) => postedIds.has(episode.id)).length;
 
   return <main>
-    <header><div><span className="eyebrow">JOE + DANDA</span><h1>Relations Studio</h1><p>Cartoon-first short-form relationship video production.</p></div><div className="statusPill">Studio V1</div></header>
+    <header><div><span className="eyebrow">JOE + DANDA</span><h1>Relations Studio</h1><p>Cartoon-first short-form relationship video production.</p></div><div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}><Link href="/music" className="statusPill">♪ Music Studio</Link><div className="statusPill">Studio V1</div></div></header>
     <section className="stats"><div><b>{episodes.length}</b><span>Episodes ready</span></div><div><b>{builtCount}</b><span>Episodes built</span></div><div><b>{postedCount}</b><span>Posted to social</span></div><div><b>9:16</b><span>Master format</span></div></section>
     <div className="sectionHeading"><div><span className="eyebrow">PRODUCTION QUEUE</span><h2>Episode Library</h2></div><p>Built episodes are marked automatically. Mark an episode posted after you publish it to social.</p></div>
     <div className="grid">{episodes.map((e,i)=>{
