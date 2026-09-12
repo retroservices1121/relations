@@ -2,12 +2,146 @@
 
 import { useEffect, useState } from "react";
 import type { MusicalEpisode } from "../data/musicalEpisodes";
+import { deriveSceneTimings, type SceneTiming, type SongChunk } from "../lib/musicalTiming";
 
-export default function MusicalEpisodePanel({ episode }: { episode: MusicalEpisode }) {
-  const storageKey=`relations:music:${episode.id}`;
-  const [musicUrl,setMusicUrl]=useState("");const[generating,setGenerating]=useState(false);const[building,setBuilding]=useState(false);const[error,setError]=useState("");const[musicalUrl,setMusicalUrl]=useState("");
-  useEffect(()=>{setMusicUrl(localStorage.getItem(storageKey)||"");},[storageKey]);
-  async function generate(){setGenerating(true);setError("");try{const response=await fetch("/api/generate-episode-song",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({episodeId:episode.id,...episode.musical})});const data=await response.json();if(!response.ok)throw new Error(data.error||"Song generation failed");setMusicUrl(data.url);localStorage.setItem(storageKey,data.url);}catch(e){setError(e instanceof Error?e.message:"Song generation failed");}finally{setGenerating(false);}}
-  async function build(){setBuilding(true);setError("");try{const projectResponse=await fetch(`/api/project?episodeId=${encodeURIComponent(episode.id)}`,{cache:"no-store"});const project=await projectResponse.json();if(!projectResponse.ok)throw new Error(project.error||"Could not load episode");if(!project.finalUrl)throw new Error("Build the normal full episode first, then click Build Musical Final.");if(!musicUrl)throw new Error("Generate the episode song first.");const response=await fetch("/api/render-musical",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({episodeId:episode.id,videoUrl:project.finalUrl,musicUrl})});const data=await response.json();if(!response.ok)throw new Error(data.error||"Musical build failed");setMusicalUrl(data.url);}catch(e){setError(e instanceof Error?e.message:"Musical build failed");}finally{setBuilding(false);}}
-  return <section style={{marginBottom:24,padding:20,border:"2px solid #111",borderRadius:18,background:"#fff8dc"}}><span className="eyebrow">SPECIAL MUSICAL EPISODE</span><h2 style={{margin:"8px 0"}}>Original Spider Song</h2><p>This episode uses an original MiniMax Music 3 comedy song instead of the normal Household Nonsense theme. Joe and Danda stay completely silent; the singer narrates the joke.</p><details><summary><b>Song lyrics</b></summary><pre style={{whiteSpace:"pre-wrap",fontFamily:"inherit"}}>{episode.musical.lyrics}</pre></details><div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:14}}><button onClick={generate} disabled={generating}>{generating?"Generating song…":musicUrl?"Regenerate Episode Song":"Generate Episode Song"}</button><button onClick={build} disabled={building||!musicUrl}>{building?"Building musical final…":"Build Musical Final"}</button></div>{musicUrl&&<div style={{marginTop:14}}><audio src={musicUrl} controls style={{width:"100%"}}/><small>Song is saved permanently to R2. Regenerate if you want another musical take.</small></div>}{musicalUrl&&<div style={{marginTop:14}}><b>✓ Musical final ready</b><video src={musicalUrl} controls playsInline style={{width:"100%",maxHeight:520,marginTop:8}}/></div>}{error&&<p style={{marginTop:12}}><b>{error}</b></p>}</section>;
+type StoredSong = {
+  musicUrl: string;
+  duration: number;
+  timings: SceneTiming[];
+  transcript?: string;
+};
+
+type Props = {
+  episode: MusicalEpisode;
+  onTimingChange?: (timings: SceneTiming[] | null) => void;
+};
+
+export default function MusicalEpisodePanel({ episode, onTimingChange }: Props) {
+  const storageKey = `relations:music:${episode.id}`;
+  const [musicUrl, setMusicUrl] = useState("");
+  const [songDuration, setSongDuration] = useState(0);
+  const [timings, setTimings] = useState<SceneTiming[]>([]);
+  const [transcript, setTranscript] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [building, setBuilding] = useState(false);
+  const [error, setError] = useState("");
+  const [musicalUrl, setMusicalUrl] = useState("");
+
+  useEffect(() => {
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) {
+      onTimingChange?.(null);
+      return;
+    }
+    try {
+      const saved = JSON.parse(raw) as StoredSong;
+      if (saved.musicUrl) setMusicUrl(saved.musicUrl);
+      if (Number(saved.duration) > 0) setSongDuration(Number(saved.duration));
+      if (Array.isArray(saved.timings) && saved.timings.length === episode.scenes.length) {
+        setTimings(saved.timings);
+        onTimingChange?.(saved.timings);
+      }
+      if (saved.transcript) setTranscript(saved.transcript);
+    } catch {
+      // Backward compatibility with the old URL-only local storage value.
+      if (raw.startsWith("http")) setMusicUrl(raw);
+      onTimingChange?.(null);
+    }
+  }, [episode.id, episode.scenes.length, onTimingChange, storageKey]);
+
+  function saveSong(nextUrl: string, nextDuration: number, nextTimings: SceneTiming[], nextTranscript = transcript) {
+    setMusicUrl(nextUrl);
+    setSongDuration(nextDuration);
+    setTimings(nextTimings);
+    setTranscript(nextTranscript);
+    localStorage.setItem(storageKey, JSON.stringify({ musicUrl: nextUrl, duration: nextDuration, timings: nextTimings, transcript: nextTranscript } satisfies StoredSong));
+    onTimingChange?.(nextTimings);
+  }
+
+  async function generate() {
+    setGenerating(true);
+    setError("");
+    setMusicalUrl("");
+    try {
+      const response = await fetch("/api/generate-episode-song", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ episodeId: episode.id, ...episode.musical }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Song generation failed");
+      const actualDuration = Math.max(1, Number(data.duration) || episode.musical.duration);
+      const chunks = Array.isArray(data.chunks) ? data.chunks as SongChunk[] : [];
+      const mapped = deriveSceneTimings(episode.id, chunks, actualDuration, episode.scenes.map((scene) => scene.duration));
+      saveSong(data.url, actualDuration, mapped, typeof data.transcript === "string" ? data.transcript : "");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Song generation failed");
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  function updateBoundary(index: number, value: number) {
+    if (index < 0 || index >= timings.length - 1) return;
+    const previousStart = timings[index].start;
+    const nextEnd = timings[index + 1].end;
+    const boundary = Math.max(previousStart + 0.25, Math.min(nextEnd - 0.25, Number(value) || previousStart + 0.25));
+    const next = timings.map((timing) => ({ ...timing }));
+    next[index].end = Number(boundary.toFixed(2));
+    next[index].duration = Number((next[index].end - next[index].start).toFixed(2));
+    next[index + 1].start = Number(boundary.toFixed(2));
+    next[index + 1].duration = Number((next[index + 1].end - next[index + 1].start).toFixed(2));
+    saveSong(musicUrl, songDuration, next);
+  }
+
+  async function build() {
+    setBuilding(true);
+    setError("");
+    try {
+      if (!musicUrl || timings.length !== episode.scenes.length) throw new Error("Generate and lock the song timing first.");
+      const projectResponse = await fetch(`/api/project?episodeId=${encodeURIComponent(episode.id)}`, { cache: "no-store" });
+      const project = await projectResponse.json();
+      if (!projectResponse.ok) throw new Error(project.error || "Could not load episode scenes");
+      const rows = Array.isArray(project.scenes) ? [...project.scenes].sort((a, b) => Number(a.scene_index) - Number(b.scene_index)) : [];
+      const scenes = rows.slice(0, episode.scenes.length).map((row) => ({ videoUrl: row.video_url })).filter((scene) => typeof scene.videoUrl === "string" && scene.videoUrl.startsWith("http"));
+      if (scenes.length !== episode.scenes.length) throw new Error("Generate and save every timed scene before building the musical final.");
+      const response = await fetch("/api/render-musical", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ episodeId: episode.id, musicUrl, songDuration, timings, scenes }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Musical build failed");
+      setMusicalUrl(data.url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Musical build failed");
+    } finally {
+      setBuilding(false);
+    }
+  }
+
+  return <section style={{marginBottom:24,padding:20,border:"2px solid #111",borderRadius:18,background:"#fff8dc"}}>
+    <span className="eyebrow">STEP 1 — SONG FIRST</span>
+    <h2 style={{margin:"8px 0"}}>Generate & Lock the Spider Song</h2>
+    <p>The song is the master timeline. MiniMax creates the song first, then Whisper timestamps the sung words and Studio maps the six visual scenes to those actual musical beats.</p>
+    <details><summary><b>Song lyrics</b></summary><pre style={{whiteSpace:"pre-wrap",fontFamily:"inherit"}}>{episode.musical.lyrics}</pre></details>
+    <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:14}}>
+      <button onClick={generate} disabled={generating}>{generating?"Generating + timestamping song…":musicUrl?"Regenerate Song":"Generate Episode Song"}</button>
+      <button onClick={build} disabled={building||!musicUrl||timings.length!==episode.scenes.length}>{building?"Building musical final…":"Build Musical Final"}</button>
+    </div>
+    {musicUrl&&<div style={{marginTop:16}}>
+      <audio src={musicUrl} controls style={{width:"100%"}} />
+      <p style={{margin:"8px 0"}}><b>Locked song length:</b> {songDuration.toFixed(2)} sec</p>
+      <p style={{margin:"6px 0 12px"}}>Listen once and check the suggested scene boundaries below. Change an end timestamp if a visual beat should cut earlier or later. The next scene automatically starts at that exact timestamp.</p>
+      <div style={{display:"grid",gap:8}}>{timings.map((timing,index)=><div key={index} style={{display:"grid",gridTemplateColumns:"60px 1fr 95px 95px 90px",gap:8,alignItems:"center",padding:"8px 10px",background:"#fff",border:"1px solid #bbb",borderRadius:10}}>
+        <b>S{index+1}</b><span>{timing.anchor}</span><span>{timing.start.toFixed(2)}s</span>
+        {index<timings.length-1?<input aria-label={`Scene ${index+1} end time`} type="number" step="0.1" min={timing.start+0.25} max={timings[index+1].end-0.25} value={timing.end} onChange={(event)=>updateBoundary(index,Number(event.target.value))}/>:<span>{timing.end.toFixed(2)}s</span>}
+        <b>{timing.duration.toFixed(2)}s</b>
+      </div>)}</div>
+      <small style={{display:"block",marginTop:10}}>Scene generation uses the next whole second (minimum 4 sec), then the final renderer trims each clip back to these exact song timestamps.</small>
+      {transcript&&<details style={{marginTop:10}}><summary>Whisper song transcript</summary><p>{transcript}</p></details>}
+    </div>}
+    {musicalUrl&&<div style={{marginTop:14}}><b>✓ Musical final ready</b><video src={musicalUrl} controls playsInline style={{width:"100%",maxHeight:520,marginTop:8}}/></div>}
+    {error&&<p style={{marginTop:12}}><b>{error}</b></p>}
+  </section>;
 }
