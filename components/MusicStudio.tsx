@@ -15,7 +15,7 @@ type PresetName = keyof typeof PRESETS;
 
 export default function MusicStudio() {
   const [title, setTitle] = useState("Saturday Be Like");
-  const [prompt, setPrompt] = useState(PRESETS["Saturday Chill"]);
+  const [prompt, setPrompt] = useState<string>(PRESETS["Saturday Chill"]);
   const [duration, setDuration] = useState(15);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState("");
