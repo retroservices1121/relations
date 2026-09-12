@@ -12,6 +12,7 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 const execFileAsync = promisify(execFile);
 const ffmpegPath = process.env.FFMPEG_PATH || "ffmpeg";
+const MUSICAL_EPISODE_IDS = new Set(["danda-spider-hero"]);
 
 function cleanPart(value: string) { return value.replace(/[^a-zA-Z0-9-_]/g, "-"); }
 async function downloadFile(url: string, outputPath: string) {
@@ -41,6 +42,14 @@ export async function POST(request: Request) {
     const sourceKey = `relations/${cleanPart(episodeId)}/sources/scene-${sceneIndex + 1}-${cleanPart(requestId)}.mp4`;
     const sourceStored = await putR2Object(sourceKey, sourceBytes, "video/mp4");
 
+    // Musical episodes keep Seedance's literal SFX untouched. The episode song is mixed only in the musical final renderer.
+    if (MUSICAL_EPISODE_IDS.has(episodeId)) {
+      await saveSceneVideo({ episodeId, sceneIndex, videoUrl: sourceStored.url, sourceVideoUrl: sourceStored.url, requestId });
+      await associateGenerationRequest({ requestId, episodeId, sceneIndex }).catch(() => undefined);
+      return NextResponse.json({ url: sourceStored.url, key: sourceStored.key, persisted: true, seedanceSfx: true, lockedTheme: false, musicalSfxOnly: true, sourceUrl: sourceStored.url });
+    }
+
+    // Normal Household Nonsense episodes keep the existing locked-theme workflow exactly as before.
     const themeUrl = await ensureHouseholdNonsenseTheme();
     const themePath = path.join(workDir, "theme.wav");
     const mixedPath = path.join(workDir, "mixed.mp4");
