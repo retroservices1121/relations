@@ -14,12 +14,12 @@ export type SceneTiming = {
 
 const sceneAnchors: Record<string, string[]> = {
   "danda-spider-hero": [
-    "Danda found a spider",
+    "She found a spider",
     "She points across the room",
-    "Joe looks at that little spider",
-    "Go on Danda",
+    "He looks at that little spider",
+    "Go on girl",
     "She takes one step",
-    "But Joe gives her a thumbs up",
+    "He gives her a thumbs up",
   ],
 };
 
