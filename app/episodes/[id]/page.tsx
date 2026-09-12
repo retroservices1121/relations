@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import EpisodeWorkspace from "../../../components/EpisodeWorkspace";
+import MusicalProductionWorkspace from "../../../components/MusicalProductionWorkspace";
 import FalCostDashboard from "../../../components/FalCostDashboard";
-import MusicalEpisodePanel from "../../../components/MusicalEpisodePanel";
 import { episodes as baseEpisodes } from "../../../data/episodes";
 import { extraEpisodes } from "../../../data/extraEpisodes";
 import { musicalEpisodes } from "../../../data/musicalEpisodes";
@@ -14,8 +14,7 @@ export default async function EpisodePage({ params }: { params: Promise<{ id: st
   if (!episode) notFound();
   const musical = musicalEpisodes.find((item) => item.id === id);
   return <>
-    <EpisodeWorkspace episode={episode} />
-    {musical && <MusicalEpisodePanel episode={musical} />}
+    {musical ? <MusicalProductionWorkspace episode={musical} /> : <EpisodeWorkspace episode={episode} />}
     <FalCostDashboard episodeId={episode.id} />
   </>;
 }
