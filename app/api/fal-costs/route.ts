@@ -33,6 +33,9 @@ async function loadBillingEvents() {
   const now = new Date();
   let cursor = new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
   const events: BillingEvent[] = [];
+  let unavailable = false;
+  let unavailableStatus: number | null = null;
+
   while (cursor < now) {
     const end = new Date(Math.min(now.getTime(), cursor.getTime() + 89 * 24 * 60 * 60 * 1000));
     const url = new URL("https://api.fal.ai/v1/models/billing-events");
@@ -40,12 +43,19 @@ async function loadBillingEvents() {
     url.searchParams.set("end", end.toISOString());
     url.searchParams.set("limit", "10000");
     const response = await fetch(url, { headers: { Authorization: authHeader() }, cache: "no-store" });
-    if (!response.ok) throw new Error(`Fal billing events unavailable (${response.status}).`);
+
+    if (!response.ok) {
+      unavailable = true;
+      unavailableStatus = response.status;
+      break;
+    }
+
     const data = await response.json();
     if (Array.isArray(data?.items)) events.push(...data.items);
     cursor = new Date(end.getTime() + 1000);
   }
-  return events;
+
+  return { events, unavailable, unavailableStatus };
 }
 
 async function loadBalance() {
@@ -62,12 +72,13 @@ export async function GET(request: Request) {
     const episodeId = new URL(request.url).searchParams.get("episodeId") || "";
     if (!episodeId) return NextResponse.json({ error: "episodeId is required." }, { status: 400 });
 
-    const [{ attempts, currentScenes }, events, credit] = await Promise.all([
+    const [{ attempts, currentScenes }, billing, credit] = await Promise.all([
       getEpisodeGenerationRequests(episodeId),
       loadBillingEvents(),
       loadBalance(),
     ]);
 
+    const events = billing.events;
     const eventByRequest = new Map<string, BillingEvent>();
     for (const event of events) if (event.request_id) eventByRequest.set(event.request_id, event);
     const ytdSpend = events.reduce((sum, event) => sum + eventCost(event), 0);
@@ -108,16 +119,20 @@ export async function GET(request: Request) {
     const sceneCosts = Array.from(scenes.values()).sort((a, b) => a.sceneIndex - b.sceneIndex);
     const episodeCost = sceneCosts.reduce((sum, scene) => sum + scene.cost, 0);
 
+    const billingNote = billing.unavailable
+      ? `Fal billing events returned ${billing.unavailableStatus ?? "an error"}, so episode costs are being estimated from tracked generation duration instead of exact billing events.`
+      : "Exact costs come from Fal billing events. Older scene retries from before cost tracking was added may only be included in the account total, not attributed to a specific scene.";
+
     return NextResponse.json({
       episodeId,
       balance: credit.balance,
       currency: credit.currency,
-      ytdSpend,
-      ytdLabel: `${new Date().getUTCFullYear()} Fal spend`,
+      ytdSpend: billing.unavailable ? null : ytdSpend,
+      ytdLabel: billing.unavailable ? "Fal spend unavailable" : `${new Date().getUTCFullYear()} Fal spend`,
       episodeCost,
       sceneCosts,
       requests: rows,
-      note: "Exact costs come from Fal billing events. Older scene retries from before cost tracking was added may only be included in the account total, not attributed to a specific scene.",
+      note: billingNote,
     });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Could not load Fal costs." }, { status: 500 });
