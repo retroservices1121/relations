@@ -11,12 +11,12 @@ export type MusicalEpisode = Episode & {
 export const musicalEpisodes: MusicalEpisode[] = [
   {
     id: "danda-spider-hero",
-    title: "Danda Finds a Spider",
+    title: "She Found a Spider",
     hook: "When your wife needs her hero... but her hero says she can do it",
     musical: {
-      duration: 32,
-      prompt: "Original upbeat comedic storytelling song for a short relationship cartoon. Playful warm male narrator, catchy acoustic-pop comedy feel, pizzicato strings, light drums, hand percussion and cheeky bass. Start curious and sneaky, build into mock-heroic energy, then playful tension as Danda approaches the spider, ending with a warm funny button. Clear intelligible vocals, brisk pacing, memorable melody, family-friendly, no profanity, no imitation of any existing song or artist, no copyrighted melody. The singer is an outside narrator; Joe and Danda never sing or speak.",
-      lyrics: `[intro]\nDanda found a spider, now she's frozen in her tracks\n\n[verse]\nShe points across the room like, Joe, you better handle that\nShe needs her hero, someone brave to save the day\nJoe looks at that little spider and just shrugs the fear away\n\n[chorus]\nGo on, Danda, you can do it, grab the shoe\nThat tiny bug ain't gonna do a thing to you\nShe takes one step, then the spider takes two\nShe runs right back to Joe like, this is YOUR job to do\n\n[outro]\nBut Joe gives her a thumbs-up, like, baby, I believe in you\nSometimes your hero's off duty... and the spider's still there too`,
+      duration: 45,
+      prompt: "Original fast, funny, upbeat storytelling song for a short relationship cartoon. Energetic male narrator with crisp, playful delivery and clear intelligible lyrics. Around 145 BPM. Bright comedic pop with punchy drums, handclaps, bouncy bass, acoustic guitar, playful plucked synths or mallets, quick stop-start accents and cartoon-comedy musical hits. Keep the groove moving from the first second with almost no intro. Make it catchy, silly, energetic and social-media friendly, with a strong rhythmic pulse and obvious comedic beat changes that can drive visual cuts. Do NOT make it jazzy, swing, lounge, crooner, orchestral, classical, cinematic or slow. No long instrumental breaks. Family-friendly, no profanity, no imitation of any existing song or artist, no copyrighted melody. The singer is an outside narrator; the husband and wife never sing or speak. Finish the complete final lyric and leave a short clean musical button after the last line instead of cutting off the ending.",
+      lyrics: `[intro]\nShe found a spider, now she's frozen in her tracks\n\n[verse]\nShe points across the room like, you better handle that\nShe needs her hero, someone brave to save the day\nHe looks at that little spider and just shrugs the fear away\n\n[chorus]\nGo on, girl, you got this, grab the shoe\nThat tiny bug ain't gonna do a thing to you\nShe takes one step, then the spider takes two\nShe runs behind her husband like, this is YOUR job to do\n\n[outro]\nHe gives her a thumbs-up, like, baby, I believe in you\nSometimes your hero's off duty... and the spider's still there too\n\n[instrumental]`,
     },
     scenes: [
       {
@@ -43,7 +43,7 @@ export const musicalEpisodes: MusicalEpisode[] = [
       {
         duration: 6,
         prompt: "EXACTLY ONE Joe and ONE Danda only. Danda reluctantly holds the shoe and begins an exaggerated slow approach toward the tiny spider. Her knees bend cautiously and her free hand is held out nervously. Joe stays comfortably several steps behind her, totally relaxed, silently pointing toward the spider and giving an encouraging thumbs-up like a coach. Joe never approaches to kill it and never looks scared. The spider moves only a tiny distance. Danda immediately jumps backward in alarm while Joe remains perfectly calm and simply points to where it moved. Both mouths closed and still. No screams, gasps, speech, lip sync, vocal sounds or generated music.",
-        caption: "Joe: moral support only 😂",
+        caption: "Husband: moral support only 😂",
         captionStart: 1.0,
         captionEnd: 5.5,
       },
