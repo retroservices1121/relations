@@ -20,7 +20,10 @@ export async function POST(request: Request) {
     const episodeId = typeof body.episodeId === "string" ? body.episodeId : "episode";
     const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
     const lyrics = typeof body.lyrics === "string" ? body.lyrics.trim() : "";
-    const duration = Math.max(20, Math.min(60, Number(body.duration) || 32));
+    // MiniMax Music 3 treats duration as an upper bound and can stop naturally earlier.
+    // Give it the model's full 5-minute ceiling so short comedy songs are never cut off
+    // by an artificial Studio duration such as 32s or 45s.
+    const duration = 300;
     if (!prompt || !lyrics) return NextResponse.json({ error: "Song prompt and lyrics are required." }, { status: 400 });
 
     const result = await fal.subscribe("minimax/music-3", {
