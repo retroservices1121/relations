@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { episodes as baseEpisodes } from "../data/episodes";
 import { extraEpisodes } from "../data/extraEpisodes";
+import { musicalEpisodes } from "../data/musicalEpisodes";
 import { dbConfigured, getBuiltEpisodeIds, getPostedEpisodeIds } from "../lib/db";
 import PostedToggle from "../components/PostedToggle";
 
 export const dynamic = "force-dynamic";
 
-const episodes = [...baseEpisodes, ...extraEpisodes];
+const episodes = [...baseEpisodes, ...extraEpisodes, ...musicalEpisodes];
 
 export default async function Home(){
   let builtIds = new Set<string>();
@@ -31,12 +32,13 @@ export default async function Home(){
     <div className="grid">{episodes.map((e,i)=>{
       const built = builtIds.has(e.id);
       const posted = postedIds.has(e.id);
+      const musical = "musical" in e;
       return <Link className="episodeLink" href={`/episodes/${e.id}`} key={e.id}><article className={built ? "episodeBuilt" : ""}>
         <div className="episodeTop"><span className="num">EP {String(i+1).padStart(2,"0")}</span>{built && <span className="builtBadge" aria-label="Episode built">✓ Built</span>}</div>
-        <h3>{e.title}</h3><p>{e.hook}</p>
+        <h3>{e.title}</h3><p>{e.hook}</p>{musical&&<p><b>♪ Musical episode</b></p>}
         <PostedToggle episodeId={e.id} initialPosted={posted} />
         <footer><span>{e.scenes.length} scenes</span><span>{e.scenes.reduce((a,s)=>a+s.duration,0)} sec</span><span className="openLabel">Open →</span></footer>
       </article></Link>;
     })}</div>
-  </main>
+  </main>;
 }
