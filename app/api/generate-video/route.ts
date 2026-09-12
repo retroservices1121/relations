@@ -54,9 +54,10 @@ export async function POST(request: Request) {
     const endpoint = endpointFor(model);
     const safeDuration = Math.max(4, Math.min(15, Number(duration) || 5));
     const lockedPrompt = `${LOCKED_VISUAL_DIRECTION}\n\nSCENE INSTRUCTIONS:\n${prompt}`;
-    const submission = await fal.queue.submit(endpoint, { input: { prompt: lockedPrompt, image_urls: imageUrls.slice(0, 2), resolution: "720p", duration: String(safeDuration), aspect_ratio: "9:16", generate_audio: true, bitrate_mode: "standard" } });
+    const isMusicalScene = prompt.includes("MUSICAL TIMING TARGET:");
+    const submission = await fal.queue.submit(endpoint, { input: { prompt: lockedPrompt, image_urls: imageUrls.slice(0, 2), resolution: "720p", duration: String(safeDuration), aspect_ratio: "9:16", generate_audio: !isMusicalScene, bitrate_mode: "standard" } });
     await saveGenerationRequest({ requestId: submission.request_id, model, endpointId: endpoint, duration: safeDuration }).catch(() => undefined);
-    return NextResponse.json({ requestId: submission.request_id, model, status: "queued" });
+    return NextResponse.json({ requestId: submission.request_id, model, status: "queued", musicalAudioDisabled: isMusicalScene });
   } catch (error) {
     const payload = errorPayload(error, "Video generation failed.");
     return NextResponse.json({ error: payload.error, code: payload.code }, { status: payload.status });
