@@ -40,7 +40,7 @@ export async function POST(request: Request) {
     for (let index = 0; index < sceneUrls.length; index += 1) {
       const inputPath = path.join(workDir, `scene-${index}.mp4`); const outputPath = path.join(workDir, `part-${index}.mp4`); await downloadFile(sceneUrls[index], inputPath);
       const exactDuration = durations[index].toFixed(3);
-      await execFileAsync(ffmpegPath, ["-y","-i",inputPath,"-filter_complex","[0:v]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,fps=30,format=yuv420p,tpad=stop_mode=clone:stop_duration=3[v];[0:a]aresample=48000,apad[a]","-map","[v]","-map","[a]","-t",exactDuration,"-c:v","libx264","-profile:v","high","-level","4.0","-preset","veryfast","-crf","20","-r","30","-c:a","aac","-b:a","160k","-ar","48000","-ac","2","-movflags","+faststart",outputPath]);
+      await execFileAsync(ffmpegPath, ["-y","-i",inputPath,"-vf","scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,fps=30,format=yuv420p,tpad=stop_mode=clone:stop_duration=3","-t",exactDuration,"-an","-c:v","libx264","-profile:v","high","-level","4.0","-preset","veryfast","-crf","20","-r","30","-movflags","+faststart",outputPath]);
       renderedParts.push(outputPath);
     }
     const concatFile = path.join(workDir, "concat.txt"); await fs.writeFile(concatFile, renderedParts.map((file) => `file '${file.replace(/'/g, "'\\''")}'`).join("\n"));
@@ -48,11 +48,12 @@ export async function POST(request: Request) {
     await execFileAsync(ffmpegPath, ["-y","-f","concat","-safe","0","-i",concatFile,"-c","copy",joinedPath]);
 
     const finalPath = path.join(workDir, "musical.mp4");
-    // The generated song is the dominant soundtrack. Original Seedance scene SFX sit quietly underneath it; the normal Household Nonsense theme is never used here.
-    await execFileAsync(ffmpegPath, ["-y","-fflags","+genpts","-i",joinedPath,"-i",musicPath,"-filter_complex","[0:a]volume=0.32[sfx];[1:a]volume=1.0[song];[song][sfx]amix=inputs=2:duration=first:dropout_transition=0[a]","-t",songDuration.toFixed(3),"-map","0:v:0","-map","[a]","-c:v","libx264","-profile:v","high","-level","4.0","-preset","medium","-crf","20","-pix_fmt","yuv420p","-r","30","-vsync","cfr","-c:a","aac","-b:a","192k","-ar","48000","-ac","2","-avoid_negative_ts","make_zero","-movflags","+faststart",finalPath]);
+    // Musical episodes use the locked generated song as the only audio source.
+    // Scene audio is intentionally discarded so Seedance can never leak gibberish speech or character vocalizations into the final.
+    await execFileAsync(ffmpegPath, ["-y","-fflags","+genpts","-i",joinedPath,"-i",musicPath,"-t",songDuration.toFixed(3),"-map","0:v:0","-map","1:a:0","-c:v","libx264","-profile:v","high","-level","4.0","-preset","medium","-crf","20","-pix_fmt","yuv420p","-r","30","-vsync","cfr","-c:a","aac","-b:a","192k","-ar","48000","-ac","2","-avoid_negative_ts","make_zero","-movflags","+faststart",finalPath]);
     const bytes = await fs.readFile(finalPath); const key = `relations/${cleanPart(episodeId)}/final/musical-${Date.now()}.mp4`; const stored = await putR2Object(key, bytes, "video/mp4");
     await saveFinalVideo(episodeId, stored.url);
-    return NextResponse.json({ url: stored.url, key: stored.key, musical: true, songFirst: true, songDuration, sceneSfxMixed: true, householdTheme: false });
+    return NextResponse.json({ url: stored.url, key: stored.key, musical: true, songFirst: true, songDuration, sceneAudioDiscarded: true, householdTheme: false });
   } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Could not build musical episode." }, { status: 500 }); }
   finally { if (workDir) await fs.rm(workDir, { recursive: true, force: true }).catch(() => undefined); }
 }
