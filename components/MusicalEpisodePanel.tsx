@@ -43,7 +43,6 @@ export default function MusicalEpisodePanel({ episode, onTimingChange }: Props) 
       }
       if (saved.transcript) setTranscript(saved.transcript);
     } catch {
-      // Backward compatibility with the old URL-only local storage value.
       if (raw.startsWith("http")) setMusicUrl(raw);
       onTimingChange?.(null);
     }
@@ -120,28 +119,28 @@ export default function MusicalEpisodePanel({ episode, onTimingChange }: Props) 
     }
   }
 
-  return <section style={{marginBottom:24,padding:20,border:"2px solid #111",borderRadius:18,background:"#fff8dc"}}>
+  return <section className="musicalPanel">
     <span className="eyebrow">STEP 1 — SONG FIRST</span>
-    <h2 style={{margin:"8px 0"}}>Generate & Lock the Spider Song</h2>
+    <h2>Generate & Lock the Spider Song</h2>
     <p>The song is the master timeline. MiniMax creates the song first, then Whisper timestamps the sung words and Studio maps the six visual scenes to those actual musical beats.</p>
-    <details><summary><b>Song lyrics</b></summary><pre style={{whiteSpace:"pre-wrap",fontFamily:"inherit"}}>{episode.musical.lyrics}</pre></details>
-    <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:14}}>
+    <details><summary><b>Song lyrics</b></summary><pre>{episode.musical.lyrics}</pre></details>
+    <div className="musicalActions">
       <button onClick={generate} disabled={generating}>{generating?"Generating + timestamping song…":musicUrl?"Regenerate Song":"Generate Episode Song"}</button>
       <button onClick={build} disabled={building||!musicUrl||timings.length!==episode.scenes.length}>{building?"Building musical final…":"Build Musical Final"}</button>
     </div>
-    {musicUrl&&<div style={{marginTop:16}}>
-      <audio src={musicUrl} controls style={{width:"100%"}} />
-      <p style={{margin:"8px 0"}}><b>Locked song length:</b> {songDuration.toFixed(2)} sec</p>
-      <p style={{margin:"6px 0 12px"}}>Listen once and check the suggested scene boundaries below. Change an end timestamp if a visual beat should cut earlier or later. The next scene automatically starts at that exact timestamp.</p>
-      <div style={{display:"grid",gap:8}}>{timings.map((timing,index)=><div key={index} style={{display:"grid",gridTemplateColumns:"60px 1fr 95px 95px 90px",gap:8,alignItems:"center",padding:"8px 10px",background:"#fff",border:"1px solid #bbb",borderRadius:10}}>
+    {musicUrl&&<div className="musicalSong">
+      <audio src={musicUrl} controls />
+      <p><b>Locked song length:</b> {songDuration.toFixed(2)} sec</p>
+      <p>Listen once and check the suggested scene boundaries below. Change an end timestamp if a visual beat should cut earlier or later. The next scene automatically starts at that exact timestamp.</p>
+      <div className="musicalTimings">{timings.map((timing,index)=><div key={index} className="musicalTimingRow">
         <b>S{index+1}</b><span>{timing.anchor}</span><span>{timing.start.toFixed(2)}s</span>
         {index<timings.length-1?<input aria-label={`Scene ${index+1} end time`} type="number" step="0.1" min={timing.start+0.25} max={timings[index+1].end-0.25} value={timing.end} onChange={(event)=>updateBoundary(index,Number(event.target.value))}/>:<span>{timing.end.toFixed(2)}s</span>}
         <b>{timing.duration.toFixed(2)}s</b>
       </div>)}</div>
-      <small style={{display:"block",marginTop:10}}>Scene generation uses the next whole second (minimum 4 sec), then the final renderer trims each clip back to these exact song timestamps.</small>
-      {transcript&&<details style={{marginTop:10}}><summary>Whisper song transcript</summary><p>{transcript}</p></details>}
+      <small>Scene generation uses the next whole second (minimum 4 sec), then the final renderer trims each clip back to these exact song timestamps.</small>
+      {transcript&&<details><summary>Whisper song transcript</summary><p>{transcript}</p></details>}
     </div>}
-    {musicalUrl&&<div style={{marginTop:14}}><b>✓ Musical final ready</b><video src={musicalUrl} controls playsInline style={{width:"100%",maxHeight:520,marginTop:8}}/></div>}
-    {error&&<p style={{marginTop:12}}><b>{error}</b></p>}
+    {musicalUrl&&<div className="musicalResult"><b>✓ Musical final ready</b><video src={musicalUrl} controls playsInline /></div>}
+    {error&&<p className="errorText"><b>{error}</b></p>}
   </section>;
 }
