@@ -42,11 +42,17 @@ export async function POST(request: Request) {
     const sourceKey = `relations/${cleanPart(episodeId)}/sources/scene-${sceneIndex + 1}-${cleanPart(requestId)}.mp4`;
     const sourceStored = await putR2Object(sourceKey, sourceBytes, "video/mp4");
 
-    // Musical episodes keep Seedance's literal SFX untouched. The episode song is mixed only in the musical final renderer.
+    // Musical episodes are persisted completely silent. Seedance audio is disabled for new generations,
+    // and this strip is a second safety layer so an older clip can never carry gibberish speech into the musical workflow.
     if (MUSICAL_EPISODE_IDS.has(episodeId)) {
-      await saveSceneVideo({ episodeId, sceneIndex, videoUrl: sourceStored.url, sourceVideoUrl: sourceStored.url, requestId });
+      const silentPath = path.join(workDir, "silent.mp4");
+      await execFileAsync(ffmpegPath, ["-y", "-i", sourcePath, "-map", "0:v:0", "-c:v", "copy", "-an", "-movflags", "+faststart", silentPath]);
+      const silentBytes = await fs.readFile(silentPath);
+      const silentKey = `relations/${cleanPart(episodeId)}/scenes/scene-${sceneIndex + 1}-${cleanPart(requestId)}.mp4`;
+      const stored = await putR2Object(silentKey, silentBytes, "video/mp4");
+      await saveSceneVideo({ episodeId, sceneIndex, videoUrl: stored.url, sourceVideoUrl: sourceStored.url, requestId });
       await associateGenerationRequest({ requestId, episodeId, sceneIndex }).catch(() => undefined);
-      return NextResponse.json({ url: sourceStored.url, key: sourceStored.key, persisted: true, seedanceSfx: true, lockedTheme: false, musicalSfxOnly: true, sourceUrl: sourceStored.url });
+      return NextResponse.json({ url: stored.url, key: stored.key, persisted: true, lockedTheme: false, musicalSilent: true, sourceUrl: sourceStored.url });
     }
 
     // Normal Household Nonsense episodes keep the existing locked-theme workflow exactly as before.
