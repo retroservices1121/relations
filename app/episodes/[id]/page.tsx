@@ -5,8 +5,13 @@ import FalCostDashboard from "../../../components/FalCostDashboard";
 import { episodes as baseEpisodes } from "../../../data/episodes";
 import { extraEpisodes } from "../../../data/extraEpisodes";
 import { musicalEpisodes } from "../../../data/musicalEpisodes";
+import { episodeOverrides } from "../../../data/episodeOverrides";
 
-const episodes = [...baseEpisodes, ...extraEpisodes, ...musicalEpisodes];
+const episodes = [
+  ...baseEpisodes.map((episode) => episodeOverrides[episode.id] ?? episode),
+  ...extraEpisodes,
+  ...musicalEpisodes,
+];
 
 export default async function EpisodePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
