@@ -6,10 +6,12 @@ import { episodes as baseEpisodes } from "../../../data/episodes";
 import { extraEpisodes } from "../../../data/extraEpisodes";
 import { musicalEpisodes } from "../../../data/musicalEpisodes";
 import { episodeOverrides } from "../../../data/episodeOverrides";
+import { newEpisodes } from "../../../data/newEpisodes";
 
 const episodes = [
   ...baseEpisodes.map((episode) => episodeOverrides[episode.id] ?? episode),
   ...extraEpisodes,
+  ...newEpisodes,
   ...musicalEpisodes,
 ];
 
