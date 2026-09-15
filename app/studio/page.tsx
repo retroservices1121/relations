@@ -3,6 +3,7 @@ import { episodes as baseEpisodes } from "../../data/episodes";
 import { extraEpisodes } from "../../data/extraEpisodes";
 import { musicalEpisodes } from "../../data/musicalEpisodes";
 import { episodeOverrides } from "../../data/episodeOverrides";
+import { newEpisodes } from "../../data/newEpisodes";
 import { dbConfigured, getBuiltEpisodeIds, getPostedEpisodeIds } from "../../lib/db";
 import PostedToggle from "../../components/PostedToggle";
 
@@ -11,6 +12,7 @@ export const dynamic = "force-dynamic";
 const episodes = [
   ...baseEpisodes.map((episode) => episodeOverrides[episode.id] ?? episode),
   ...extraEpisodes,
+  ...newEpisodes,
   ...musicalEpisodes,
 ];
 
