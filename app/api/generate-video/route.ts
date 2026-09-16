@@ -24,6 +24,8 @@ AUDIO RULES ARE ABSOLUTE: THE AUDIO TRACK MUST CONTAIN ZERO HUMAN VOICES. Genera
 
 Do not generate captions, subtitles, speech bubbles, signs, labels, written dialogue or other on-screen text. All text overlays are added later in Studio.`;
 
+const BED_SLEEP_LOCK = `BED/SLEEP REALISM LOCK — WHEN THIS SCENE TAKES PLACE IN BED OR ON A MATTRESS: Joe and Danda are BAREFOOT for the entire scene. ABSOLUTELY NO SHOES, SNEAKERS, SLIPPERS, BOOTS, SANDALS OR OTHER FOOTWEAR may be worn on the bed or under the bedding. If feet are visible, render normal bare feet only. If feet are covered by the blanket, do not invent footwear underneath or reveal shoes later. Sleep clothing is a simple T-shirt with pajama shorts or pajama pants. This footwear rule overrides the approved daytime character-reference clothing whenever the characters are sleeping, lying in bed, getting into bed, or already on the mattress.`;
+
 function endpointFor(model: string) {
   return model === "seedance-standard"
     ? "bytedance/seedance-2.0/reference-to-video"
@@ -53,7 +55,9 @@ export async function POST(request: Request) {
     if (!Array.isArray(imageUrls) || imageUrls.length < 2) return NextResponse.json({ error: "Upload both approved cartoon character references for Joe and Danda before generating a scene." }, { status: 400 });
     const endpoint = endpointFor(model);
     const safeDuration = Math.max(4, Math.min(15, Number(duration) || 5));
-    const lockedPrompt = `${LOCKED_VISUAL_DIRECTION}\n\nSCENE INSTRUCTIONS:\n${prompt}`;
+    const isBedSleepScene = /\b(bed|bedroom|mattress|bedding|sleep|asleep|sleeping)\b/i.test(prompt);
+    const bedSleepPrompt = isBedSleepScene ? `\n\n${BED_SLEEP_LOCK}` : "";
+    const lockedPrompt = `${LOCKED_VISUAL_DIRECTION}${bedSleepPrompt}\n\nSCENE INSTRUCTIONS:\n${prompt}`;
     const isMusicalScene = prompt.includes("MUSICAL TIMING TARGET:");
     const submission = await fal.queue.submit(endpoint, { input: { prompt: lockedPrompt, image_urls: imageUrls.slice(0, 2), resolution: "720p", duration: String(safeDuration), aspect_ratio: "9:16", generate_audio: !isMusicalScene, bitrate_mode: "standard" } });
     await saveGenerationRequest({ requestId: submission.request_id, model, endpointId: endpoint, duration: safeDuration }).catch(() => undefined);
