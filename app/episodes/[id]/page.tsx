@@ -7,22 +7,9 @@ import { extraEpisodes } from "../../../data/extraEpisodes";
 import { musicalEpisodes } from "../../../data/musicalEpisodes";
 import { episodeOverrides } from "../../../data/episodeOverrides";
 import { newEpisodes } from "../../../data/newEpisodes";
+import { dbConfigured, getCustomEpisode } from "../../../lib/db";
 import styles from "./episode.module.css";
 
-const episodes = [
-  ...baseEpisodes.map((episode) => episodeOverrides[episode.id] ?? episode),
-  ...extraEpisodes,
-  ...newEpisodes,
-  ...musicalEpisodes,
-];
-
-export default async function EpisodePage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  const episode = episodes.find((item) => item.id === id);
-  if (!episode) notFound();
-  const musical = musicalEpisodes.find((item) => item.id === id);
-  return <div className={styles.shell}>
-    {musical ? <MusicalProductionWorkspace episode={musical} /> : <EpisodeWorkspace episode={episode} />}
-    <FalCostDashboard episodeId={episode.id} />
-  </div>;
-}
+const episodes=[...baseEpisodes.map((episode)=>episodeOverrides[episode.id]??episode),...extraEpisodes,...newEpisodes,...musicalEpisodes];
+export const dynamic="force-dynamic";
+export default async function EpisodePage({params}:{params:Promise<{id:string}>}){const{id}=await params;let episode=episodes.find((item)=>item.id===id);if(!episode&&id.startsWith("custom-")&&dbConfigured()){try{episode=await getCustomEpisode(id) as typeof episode;}catch{episode=undefined;}}if(!episode)notFound();const musical=musicalEpisodes.find((item)=>item.id===id);return <div className={styles.shell}>{musical?<MusicalProductionWorkspace episode={musical}/>:<EpisodeWorkspace episode={episode}/>}<FalCostDashboard episodeId={episode.id}/></div>}
