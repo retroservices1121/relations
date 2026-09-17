@@ -91,6 +91,7 @@ function compileScenes(prompt: string): Scene[] {
     duration: index === 0 || index === beats.length - 1 ? 5 : 6,
     prompt: compileScenePrompt(beat, index, beats),
     caption: "",
+    characters: characterKeysForBeat(beat),
   }));
 }
 
