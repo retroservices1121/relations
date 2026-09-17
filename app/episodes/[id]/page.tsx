@@ -7,6 +7,7 @@ import { extraEpisodes } from "../../../data/extraEpisodes";
 import { musicalEpisodes } from "../../../data/musicalEpisodes";
 import { episodeOverrides } from "../../../data/episodeOverrides";
 import { newEpisodes } from "../../../data/newEpisodes";
+import styles from "./episode.module.css";
 
 const episodes = [
   ...baseEpisodes.map((episode) => episodeOverrides[episode.id] ?? episode),
@@ -20,8 +21,8 @@ export default async function EpisodePage({ params }: { params: Promise<{ id: st
   const episode = episodes.find((item) => item.id === id);
   if (!episode) notFound();
   const musical = musicalEpisodes.find((item) => item.id === id);
-  return <>
+  return <div className={styles.shell}>
     {musical ? <MusicalProductionWorkspace episode={musical} /> : <EpisodeWorkspace episode={episode} />}
     <FalCostDashboard episodeId={episode.id} />
-  </>;
+  </div>;
 }
