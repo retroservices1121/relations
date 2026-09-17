@@ -10,9 +10,7 @@ const HIGGSFIELD_BASE_URL = "https://api.higgsfield.ai";
 
 const LOCKED_VISUAL_DIRECTION = `FINAL VISUAL DIRECTION OVERRIDES ANY CONFLICTING STYLE LANGUAGE BELOW.
 
-CHARACTER IDENTITY IS THE HIGHEST PRIORITY. @Image1 is Joe and @Image2 is Danda. Treat these as exact recurring character model references, not loose inspiration. Preserve the SAME recognizable face shape, eye shape, eyebrows, nose, mouth, hairstyle, beard shape, skin tone, body proportions and clothing identity from the approved references. Do not redesign, beautify, age-shift, de-age, stylize into a new person, change ethnicity, change facial proportions or substitute a generic cartoon man or woman. Joe and Danda must remain immediately recognizable from their approved reference images in every frame.
-
-Joe is an early-40s man with short dark hair, a full neatly trimmed dark beard, and an average slightly stocky everyday-dad build. Joe must never become muscular, athletic, broad-chested or physically defined. Danda is an early-40s woman with long dark brown hair with warm highlights and normal adult proportions. Danda is only moderately shorter than Joe; standing together, the top of her head is approximately around Joe's eye or eyebrow level. Never make her tiny, miniature, child-sized or disproportionately small.
+CHARACTER IDENTITY IS THE HIGHEST PRIORITY. A REFERENCE MAP is supplied separately for each scene and defines exactly which recurring characters are allowed to appear. Treat only those supplied images as exact recurring character model references, not loose inspiration. Preserve the SAME recognizable face shape, eye shape, eyebrows, nose, mouth, hairstyle, beard shape, skin tone, body proportions and clothing identity from each approved reference. Do not redesign, beautify, age-shift, de-age, stylize into a new person, change ethnicity, change facial proportions or substitute a generic cartoon person. Do not introduce a recurring character whose reference is not included for the current scene.
 
 VISUAL STYLE IS STRICTLY LOCKED: simple hand-drawn 2D internet cartoon comedy. Thick clean black outlines around characters and important props. Flat solid color fills. Minimal simple cel shading only when necessary. Slightly oversized cartoon heads, large expressive eyes, simple rounded facial features, simplified hands and feet, intentionally basic anatomy, readable silhouettes and a playful drawn-cartoon appearance. Keep the same simple character construction from the approved references in every frame.
 
@@ -30,6 +28,22 @@ Do not generate captions, subtitles, speech bubbles, signs, labels, written dial
 
 const BED_SLEEP_LOCK = `BED/SLEEP REALISM LOCK — WHEN THIS SCENE TAKES PLACE IN BED OR ON A MATTRESS: Joe and Danda are BAREFOOT for the entire scene. ABSOLUTELY NO SHOES, SNEAKERS, SLIPPERS, BOOTS, SANDALS OR OTHER FOOTWEAR may be worn on the bed or under the bedding. If feet are visible, render normal bare feet only. If feet are covered by the blanket, do not invent footwear underneath or reveal shoes later. Sleep clothing is a simple T-shirt with pajama shorts or pajama pants. This footwear rule overrides the approved daytime character-reference clothing whenever the characters are sleeping, lying in bed, getting into bed, or already on the mattress.`;
 
+
+type ReferenceCharacterKey = "joe" | "danda";
+
+function characterReferenceLock(keys: ReferenceCharacterKey[]) {
+  const mapping = keys.map((key, index) => `@Image${index + 1} is ${key === "joe" ? "Joe" : "Danda"}.`).join(" ");
+  const descriptions = keys.map((key) => key === "joe"
+    ? "Joe is an early-40s man with short dark hair, a full neatly trimmed dark beard, and an average slightly stocky everyday-dad build. Joe must never become muscular, athletic, broad-chested or physically defined."
+    : "Danda is an early-40s woman with long dark brown hair with warm highlights and normal adult proportions. When Joe is also present, Danda is only moderately shorter than Joe; standing together, the top of her head is approximately around Joe's eye or eyebrow level. Never make her tiny, miniature, child-sized or disproportionately small."
+  ).join("\n");
+  const allowed = keys.map((key) => key === "joe" ? "Joe" : "Danda").join(" and ");
+  return `REFERENCE MAP — EXACTLY FOLLOW THIS FOR THE CURRENT SCENE:
+${mapping}
+Only ${allowed} may appear from the recurring cast in this scene. Do not add the other recurring character just because they exist elsewhere in the series. Do not duplicate, clone, mirror, or create an extra copy of any supplied character.
+${descriptions}`;
+}
+
 function isHiggsfieldModel(model: string) {
   return model === HIGGSFIELD_MODEL;
 }
@@ -41,6 +55,8 @@ function falEndpointFor(model: string) {
 }
 
 function higgsfieldCredentials() {
+  const singleKey = process.env.HF_API_KEY?.trim() || process.env.HF_CREDENTIALS?.trim();
+  if (singleKey) return singleKey;
   const keyId = process.env.HF_API_KEY_ID?.trim();
   const keySecret = process.env.HF_API_KEY_SECRET?.trim();
   return keyId && keySecret ? `${keyId}:${keySecret}` : "";
@@ -71,19 +87,22 @@ async function parseHiggsfieldError(response: Response) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { prompt, imageUrls = [], duration = 5, model = "seedance-fast" } = body;
+    const { prompt, imageUrls = [], characterKeys = [], duration = 5, model = "seedance-fast" } = body;
     if (!prompt || typeof prompt !== "string") return NextResponse.json({ error: "A scene prompt is required." }, { status: 400 });
-    if (!Array.isArray(imageUrls) || imageUrls.length < 2) return NextResponse.json({ error: "Upload both approved cartoon character references for Joe and Danda before generating a scene." }, { status: 400 });
+    if (!Array.isArray(imageUrls) || imageUrls.length < 1) return NextResponse.json({ error: "Upload the approved cartoon reference required for this scene before generating." }, { status: 400 });
+    const requestedKeys = Array.isArray(characterKeys) ? characterKeys.filter((key): key is ReferenceCharacterKey => key === "joe" || key === "danda") : [];
+    const safeCharacterKeys: ReferenceCharacterKey[] = requestedKeys.length ? requestedKeys.slice(0, imageUrls.length) : imageUrls.length === 1 ? ["joe"] : ["joe", "danda"];
+    if (safeCharacterKeys.length !== imageUrls.length) return NextResponse.json({ error: "Character reference mapping does not match the supplied images." }, { status: 400 });
 
     const usingHiggsfield = isHiggsfieldModel(model);
-    if (usingHiggsfield && !higgsfieldCredentials()) return NextResponse.json({ error: "HF_API_KEY_ID and HF_API_KEY_SECRET are not configured on the server." }, { status: 500 });
+    if (usingHiggsfield && !higgsfieldCredentials()) return NextResponse.json({ error: "HF_API_KEY is not configured on the server." }, { status: 500 });
     if (!usingHiggsfield && !process.env.FAL_KEY) return NextResponse.json({ error: "FAL_KEY is not configured on the server." }, { status: 500 });
 
     const maxDuration = usingHiggsfield ? 30 : 15;
     const safeDuration = Math.max(4, Math.min(maxDuration, Number(duration) || 5));
     const isBedSleepScene = /\b(bed|bedroom|mattress|bedding|sleep|asleep|sleeping)\b/i.test(prompt);
     const bedSleepPrompt = isBedSleepScene ? `\n\n${BED_SLEEP_LOCK}` : "";
-    const lockedPrompt = `${LOCKED_VISUAL_DIRECTION}${bedSleepPrompt}\n\nSCENE INSTRUCTIONS:\n${prompt}`;
+    const lockedPrompt = `${LOCKED_VISUAL_DIRECTION}\n\n${characterReferenceLock(safeCharacterKeys)}${bedSleepPrompt}\n\nSCENE INSTRUCTIONS:\n${prompt}`;
     const isMusicalScene = prompt.includes("MUSICAL TIMING TARGET:");
 
     if (usingHiggsfield) {
@@ -96,7 +115,7 @@ export async function POST(request: Request) {
         },
         body: JSON.stringify({
           prompt: lockedPrompt,
-          image_urls: imageUrls.slice(0, 2),
+          image_urls: imageUrls.slice(0, safeCharacterKeys.length),
           duration: safeDuration,
           resolution: "720p",
           aspect_ratio: "9:16",
@@ -113,7 +132,7 @@ export async function POST(request: Request) {
     }
 
     const endpoint = falEndpointFor(model);
-    const submission = await fal.queue.submit(endpoint, { input: { prompt: lockedPrompt, image_urls: imageUrls.slice(0, 2), resolution: "720p", duration: String(safeDuration), aspect_ratio: "9:16", generate_audio: !isMusicalScene, bitrate_mode: "standard" } });
+    const submission = await fal.queue.submit(endpoint, { input: { prompt: lockedPrompt, image_urls: imageUrls.slice(0, safeCharacterKeys.length), resolution: "720p", duration: String(safeDuration), aspect_ratio: "9:16", generate_audio: !isMusicalScene, bitrate_mode: "standard" } });
     await saveGenerationRequest({ requestId: submission.request_id, model, endpointId: endpoint, duration: safeDuration }).catch(() => undefined);
     return NextResponse.json({ requestId: submission.request_id, model, provider: "fal", status: "queued", musicalAudioDisabled: isMusicalScene });
   } catch (error) {
@@ -132,7 +151,7 @@ export async function GET(request: Request) {
     const higgsfieldRequest = encodedRequestId.startsWith("hf:") || isHiggsfieldModel(model);
     if (higgsfieldRequest) {
       const credentials = higgsfieldCredentials();
-      if (!credentials) return NextResponse.json({ error: "HF_API_KEY_ID and HF_API_KEY_SECRET are not configured on the server." }, { status: 500 });
+      if (!credentials) return NextResponse.json({ error: "HF_API_KEY is not configured on the server." }, { status: 500 });
       const requestId = encodedRequestId.replace(/^hf:/, "");
       const response = await fetch(`${HIGGSFIELD_BASE_URL}/requests/${encodeURIComponent(requestId)}/status`, {
         headers: { Authorization: `Key ${credentials}`, Accept: "application/json" },
