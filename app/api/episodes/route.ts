@@ -24,8 +24,12 @@ function splitStory(text: string) {
   ];
 }
 
+function characterKeysForBeat(beat: string) {
+  return (["joe", "danda", "buddy"] as const).filter((key) => new RegExp(`\\b${key}\\b`, "i").test(beat));
+}
+
 function charactersForBeat(beat: string) {
-  const names = ["Joe", "Danda", "Buddy"].filter((name) => new RegExp(`\\b${name}\\b`, "i").test(beat));
+  const names = characterKeysForBeat(beat).map((key) => key === "joe" ? "Joe" : key === "danda" ? "Danda" : "Buddy");
   if (names.length === 1) return `ONLY ${names[0]} appears in this scene. Do not introduce Joe, Danda, Buddy, background people, reflections of other characters, or extra copies unless that named character is ${names[0]}. Exactly one ${names[0]}.`;
   if (names.length > 1) return `Characters present: ${names.join(" and ")}. Exactly one of each named character. Do not add any other people or duplicate, clone, mirror, repeat, or create extra copies of them.`;
   return "Use only the characters explicitly required by this beat. Do not invent background people, duplicate recurring characters, or add an unrelated person to create motion.";
