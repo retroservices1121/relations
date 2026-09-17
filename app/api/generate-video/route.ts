@@ -26,7 +26,7 @@ AUDIO RULES ARE ABSOLUTE: THE AUDIO TRACK MUST CONTAIN ZERO HUMAN VOICES. Genera
 
 Do not generate captions, subtitles, speech bubbles, signs, labels, written dialogue or other on-screen text. All text overlays are added later in Studio.`;
 
-const BED_SLEEP_LOCK = `BED/SLEEP REALISM LOCK — WHEN THIS SCENE TAKES PLACE IN BED OR ON A MATTRESS: Joe and Danda are BAREFOOT for the entire scene. ABSOLUTELY NO SHOES, SNEAKERS, SLIPPERS, BOOTS, SANDALS OR OTHER FOOTWEAR may be worn on the bed or under the bedding. If feet are visible, render normal bare feet only. If feet are covered by the blanket, do not invent footwear underneath or reveal shoes later. Sleep clothing is a simple T-shirt with pajama shorts or pajama pants. This footwear rule overrides the approved daytime character-reference clothing whenever the characters are sleeping, lying in bed, getting into bed, or already on the mattress.`;
+const BED_SLEEP_LOCK = `BED/SLEEP REALISM LOCK — WHEN THIS SCENE TAKES PLACE IN BED OR ON A MATTRESS: Any recurring character who is actually present is BAREFOOT for the entire scene. ABSOLUTELY NO SHOES, SNEAKERS, SLIPPERS, BOOTS, SANDALS OR OTHER FOOTWEAR may be worn on the bed or under the bedding. If feet are visible, render normal bare feet only. If feet are covered by the blanket, do not invent footwear underneath or reveal shoes later. Sleep clothing is a simple T-shirt with pajama shorts or pajama pants. This footwear rule overrides the approved daytime character-reference clothing whenever the characters are sleeping, lying in bed, getting into bed, or already on the mattress.`;
 
 
 type ReferenceCharacterKey = "joe" | "danda";
@@ -90,7 +90,7 @@ export async function POST(request: Request) {
     const { prompt, imageUrls = [], characterKeys = [], duration = 5, model = "seedance-fast" } = body;
     if (!prompt || typeof prompt !== "string") return NextResponse.json({ error: "A scene prompt is required." }, { status: 400 });
     if (!Array.isArray(imageUrls) || imageUrls.length < 1) return NextResponse.json({ error: "Upload the approved cartoon reference required for this scene before generating." }, { status: 400 });
-    const requestedKeys = Array.isArray(characterKeys) ? characterKeys.filter((key): key is ReferenceCharacterKey => key === "joe" || key === "danda") : [];
+    const requestedKeys = Array.isArray(characterKeys) ? characterKeys.filter((key: unknown): key is ReferenceCharacterKey => key === "joe" || key === "danda") : [];
     const safeCharacterKeys: ReferenceCharacterKey[] = requestedKeys.length ? requestedKeys.slice(0, imageUrls.length) : imageUrls.length === 1 ? ["joe"] : ["joe", "danda"];
     if (safeCharacterKeys.length !== imageUrls.length) return NextResponse.json({ error: "Character reference mapping does not match the supplied images." }, { status: 400 });
 
