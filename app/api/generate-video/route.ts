@@ -28,6 +28,15 @@ Do not generate captions, subtitles, speech bubbles, signs, labels, written dial
 
 const BED_SLEEP_LOCK = `BED/SLEEP REALISM LOCK — WHEN THIS SCENE TAKES PLACE IN BED OR ON A MATTRESS: Any recurring character who is actually present is BAREFOOT for the entire scene. ABSOLUTELY NO SHOES, SNEAKERS, SLIPPERS, BOOTS, SANDALS OR OTHER FOOTWEAR may be worn on the bed or under the bedding. If feet are visible, render normal bare feet only. If feet are covered by the blanket, do not invent footwear underneath or reveal shoes later. Sleep clothing is a simple T-shirt with pajama shorts or pajama pants. This footwear rule overrides the approved daytime character-reference clothing whenever the characters are sleeping, lying in bed, getting into bed, or already on the mattress.`;
 
+const LIGHT_PASS_OVERRIDE = `LIGHT-PASS ACTION OVERRIDE — THIS OVERRIDES ANY EARLIER WORDING ABOUT WALKING PAST THE LIGHT CONTROL:
+The bedroom is already brightly and evenly illuminated in the FIRST FRAME. The illumination remains exactly unchanged through the FINAL FRAME. There is NO lighting transition anywhere in this shot.
+Start with Danda already inside the bedroom, just beyond the doorway. A small wall switch plate may remain visible BEHIND her near the doorway, but it is background scenery only.
+Danda faces AWAY from the doorway and walks continuously AWAY from the wall plate toward the bed. Both of Danda's hands remain relaxed at her sides and physically far from the wall for the entire walk. She never turns toward the wall, never raises a hand toward it, never reaches backward, never pauses beside it, and never touches or operates it.
+The only action in this shot is: Danda walks directly to the bed, climbs into bed, lies down, pulls the blanket into a comfortable position, and settles in.
+The wall control never moves. The room brightness never changes. Do not depict Danda switching anything on or off. Do not depict a finger near the wall control. Do not make the wall control the focal action of the shot.
+Camera: stable medium-wide view angled toward the bed so Danda's path is FROM the doorway TO the bed. The doorway and wall plate stay behind her as she moves farther away from them.`;
+
+
 
 type ReferenceCharacterKey = "joe" | "danda";
 
@@ -102,7 +111,9 @@ export async function POST(request: Request) {
     const safeDuration = Math.max(4, Math.min(maxDuration, Number(duration) || 5));
     const isBedSleepScene = /\b(bed|bedroom|mattress|bedding|sleep|asleep|sleeping)\b/i.test(prompt);
     const bedSleepPrompt = isBedSleepScene ? `\n\n${BED_SLEEP_LOCK}` : "";
-    const lockedPrompt = `${LOCKED_VISUAL_DIRECTION}\n\n${characterReferenceLock(safeCharacterKeys)}${bedSleepPrompt}\n\nSCENE INSTRUCTIONS:\n${prompt}`;
+    const isLightPassScene = prompt.includes("LIGHT-SWITCH STATE LOCK");
+    const lightPassPrompt = isLightPassScene ? `\n\n${LIGHT_PASS_OVERRIDE}` : "";
+    const lockedPrompt = `${LOCKED_VISUAL_DIRECTION}\n\n${characterReferenceLock(safeCharacterKeys)}${bedSleepPrompt}\n\nSCENE INSTRUCTIONS:\n${prompt}${lightPassPrompt}`;
     const isMusicalScene = prompt.includes("MUSICAL TIMING TARGET:");
 
     if (usingHiggsfield) {
