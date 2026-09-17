@@ -48,7 +48,7 @@ function negativeInvariants(beat: string) {
   const rules: string[] = [];
   if (negatives.length) rules.push(`CREATOR INVARIANTS: ${negatives.map((s) => s.trim()).join(" ")} Treat these as hard physical state constraints, not optional story flavor.`);
   if (/light switch/i.test(beat) && /(walks?|passes?|past)/i.test(beat) && /(without|does not|doesn't|not touch|remains? on|stays? on)/i.test(beat)) {
-    rules.push("LIGHT-SWITCH STATE LOCK: The room light is already ON in the first frame and stays ON through the final frame. The wall switch remains in the exact same position. Danda's hands remain physically separated from the switch as she passes it. No finger reaches toward it. No switch movement occurs. Brightness, illumination, and shadows do not change at any point in this scene.");
+    rules.push("LIGHT-SWITCH STATE LOCK: The bedroom is already brightly and evenly illuminated in the first frame and remains visually identical through the final frame. Danda starts just inside the bedroom with the doorway and small wall switch plate already BEHIND her. She walks AWAY from the wall and directly TOWARD the bed, climbs into bed, lies down, and settles under the blanket. Both hands remain down and away from the wall. She never turns toward, reaches for, touches, or operates the wall control. The wall control never moves and the room brightness never changes. Joe, if present, remains in bed and only watches her.");
   }
   return rules.join("\n");
 }
@@ -57,10 +57,14 @@ function compileScenePrompt(beat: string, index: number, beats: string[]) {
   const previous = index > 0 ? beats[index - 1] : "None — this is the opening scene.";
   const next = index < beats.length - 1 ? beats[index + 1] : "None — this is the final scene.";
   const invariants = negativeInvariants(beat);
+  const isLightPassBeat = /light switch/i.test(beat) && /(walks?|passes?|past)/i.test(beat) && /(without|does not|doesn't|not touch|remains? on|stays? on)/i.test(beat);
+  const sceneGoal = isLightPassBeat
+    ? "The bedroom is already illuminated. Danda is just inside the room with the doorway behind her. She walks away from the doorway directly to the bed, climbs into bed, lies down, and gets comfortable. The small wall switch plate remains untouched background scenery behind her. Joe, if present, stays in bed and silently watches."
+    : beat;
   return `PRODUCTION SCENE ${index + 1} OF ${beats.length}
 
 SCENE GOAL:
-${beat}
+${sceneGoal}
 
 CHARACTERS IN SHOT:
 ${charactersForBeat(beat)}
