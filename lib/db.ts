@@ -1,148 +1,22 @@
 import { Pool } from "pg";
+import type { Episode, Scene } from "../data/episodes";
 
-declare global {
-  var relationsPool: Pool | undefined;
-  var relationsSchemaReady: Promise<void> | undefined;
-}
-
-export function dbConfigured() {
-  return Boolean(process.env.DATABASE_URL);
-}
-
-function pool() {
-  if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is not configured.");
-  if (!global.relationsPool) global.relationsPool = new Pool({ connectionString: process.env.DATABASE_URL });
-  return global.relationsPool;
-}
-
-export async function ensureSchema() {
-  if (!global.relationsSchemaReady) {
-    global.relationsSchemaReady = (async () => {
-      const db = pool();
-      await db.query(`CREATE TABLE IF NOT EXISTS relations_projects (episode_id TEXT PRIMARY KEY, final_url TEXT, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());`);
-      await db.query(`ALTER TABLE relations_projects ADD COLUMN IF NOT EXISTS posted BOOLEAN NOT NULL DEFAULT FALSE;`);
-      await db.query(`CREATE TABLE IF NOT EXISTS relations_scenes (
-        episode_id TEXT NOT NULL, scene_index INTEGER NOT NULL, video_url TEXT, source_video_url TEXT, request_id TEXT,
-        persisted BOOLEAN NOT NULL DEFAULT FALSE, overlay_text TEXT NOT NULL DEFAULT '', overlay_position TEXT NOT NULL DEFAULT 'bottom',
-        overlay_start DOUBLE PRECISION NOT NULL DEFAULT 0, overlay_end DOUBLE PRECISION NOT NULL DEFAULT 0,
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY (episode_id, scene_index));`);
-      await db.query(`ALTER TABLE relations_scenes ADD COLUMN IF NOT EXISTS source_video_url TEXT;`);
-      await db.query(`CREATE TABLE IF NOT EXISTS relations_generation_requests (
-        request_id TEXT PRIMARY KEY,
-        episode_id TEXT,
-        scene_index INTEGER,
-        model TEXT NOT NULL DEFAULT 'seedance-fast',
-        endpoint_id TEXT NOT NULL DEFAULT '',
-        duration DOUBLE PRECISION NOT NULL DEFAULT 0,
-        cost_usd DOUBLE PRECISION,
-        cost_source TEXT,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      );`);
-      await db.query(`CREATE INDEX IF NOT EXISTS relations_generation_episode_scene_idx ON relations_generation_requests (episode_id, scene_index, created_at);`);
-    })();
-  }
-  await global.relationsSchemaReady;
-}
-
-export async function saveGenerationRequest(input: { requestId: string; model: string; endpointId: string; duration: number }) {
-  await ensureSchema();
-  await pool().query(
-    `INSERT INTO relations_generation_requests (request_id,model,endpoint_id,duration,created_at,updated_at)
-     VALUES ($1,$2,$3,$4,NOW(),NOW()) ON CONFLICT (request_id) DO UPDATE SET
-     model=EXCLUDED.model,endpoint_id=EXCLUDED.endpoint_id,duration=EXCLUDED.duration,updated_at=NOW()`,
-    [input.requestId, input.model, input.endpointId, input.duration],
-  );
-}
-
-export async function associateGenerationRequest(input: { requestId: string; episodeId: string; sceneIndex: number }) {
-  await ensureSchema();
-  await pool().query(
-    `UPDATE relations_generation_requests SET episode_id=$2,scene_index=$3,updated_at=NOW() WHERE request_id=$1`,
-    [input.requestId, input.episodeId, input.sceneIndex],
-  );
-}
-
-export async function saveGenerationCost(input: { requestId: string; costUsd: number; source: string }) {
-  await ensureSchema();
-  await pool().query(
-    `UPDATE relations_generation_requests SET cost_usd=$2,cost_source=$3,updated_at=NOW() WHERE request_id=$1`,
-    [input.requestId, input.costUsd, input.source],
-  );
-}
-
-export async function getEpisodeGenerationRequests(episodeId: string) {
-  await ensureSchema();
-  const [attempts, currentScenes] = await Promise.all([
-    pool().query(
-      `SELECT request_id,episode_id,scene_index,model,endpoint_id,duration,cost_usd,cost_source,created_at
-       FROM relations_generation_requests WHERE episode_id=$1 ORDER BY scene_index,created_at`,
-      [episodeId],
-    ),
-    pool().query(
-      `SELECT scene_index,request_id FROM relations_scenes WHERE episode_id=$1 AND request_id IS NOT NULL ORDER BY scene_index`,
-      [episodeId],
-    ),
-  ]);
-  return { attempts: attempts.rows, currentScenes: currentScenes.rows };
-}
-
-export async function saveSceneVideo(input: { episodeId: string; sceneIndex: number; videoUrl: string; requestId: string; sourceVideoUrl?: string }) {
-  await ensureSchema();
-  await pool().query(
-    `INSERT INTO relations_scenes (episode_id, scene_index, video_url, source_video_url, request_id, persisted, updated_at)
-     VALUES ($1,$2,$3,$4,$5,TRUE,NOW()) ON CONFLICT (episode_id, scene_index) DO UPDATE SET
-     video_url=EXCLUDED.video_url, source_video_url=COALESCE(EXCLUDED.source_video_url, relations_scenes.source_video_url),
-     request_id=EXCLUDED.request_id, persisted=TRUE, updated_at=NOW()`,
-    [input.episodeId, input.sceneIndex, input.videoUrl, input.sourceVideoUrl || null, input.requestId],
-  );
-}
-
-export async function saveOverlay(input: { episodeId: string; sceneIndex: number; text: string; position: string; start: number; end: number }) {
-  await ensureSchema();
-  await pool().query(
-    `INSERT INTO relations_scenes (episode_id,scene_index,overlay_text,overlay_position,overlay_start,overlay_end,updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,NOW()) ON CONFLICT (episode_id,scene_index) DO UPDATE SET
-     overlay_text=EXCLUDED.overlay_text, overlay_position=EXCLUDED.overlay_position, overlay_start=EXCLUDED.overlay_start, overlay_end=EXCLUDED.overlay_end, updated_at=NOW()`,
-    [input.episodeId,input.sceneIndex,input.text,input.position,input.start,input.end],
-  );
-}
-
-export async function saveFinalVideo(episodeId: string, finalUrl: string) {
-  await ensureSchema();
-  await pool().query(`INSERT INTO relations_projects (episode_id,final_url,updated_at) VALUES ($1,$2,NOW()) ON CONFLICT (episode_id) DO UPDATE SET final_url=EXCLUDED.final_url,updated_at=NOW()`, [episodeId, finalUrl]);
-}
-
-export async function clearFinalVideo(episodeId: string) {
-  await ensureSchema();
-  await pool().query(`INSERT INTO relations_projects (episode_id,final_url,updated_at) VALUES ($1,NULL,NOW()) ON CONFLICT (episode_id) DO UPDATE SET final_url=NULL,updated_at=NOW()`, [episodeId]);
-}
-
-export async function getBuiltEpisodeIds() {
-  await ensureSchema();
-  const result = await pool().query(`SELECT episode_id FROM relations_projects WHERE final_url IS NOT NULL AND final_url <> ''`);
-  return result.rows.map((row) => String(row.episode_id));
-}
-
-export async function getPostedEpisodeIds() {
-  await ensureSchema();
-  const result = await pool().query(`SELECT episode_id FROM relations_projects WHERE posted=TRUE`);
-  return result.rows.map((row) => String(row.episode_id));
-}
-
-export async function setEpisodePosted(episodeId: string, posted: boolean) {
-  await ensureSchema();
-  await pool().query(
-    `INSERT INTO relations_projects (episode_id,posted,updated_at) VALUES ($1,$2,NOW()) ON CONFLICT (episode_id) DO UPDATE SET posted=EXCLUDED.posted,updated_at=NOW()`,
-    [episodeId, posted],
-  );
-}
-
-export async function loadProject(episodeId: string) {
-  await ensureSchema();
-  const [project, scenes] = await Promise.all([
-    pool().query(`SELECT final_url FROM relations_projects WHERE episode_id=$1`, [episodeId]),
-    pool().query(`SELECT scene_index,video_url,source_video_url,request_id,persisted,overlay_text,overlay_position,overlay_start,overlay_end FROM relations_scenes WHERE episode_id=$1 ORDER BY scene_index`, [episodeId]),
-  ]);
-  return { finalUrl: project.rows[0]?.final_url || "", scenes: scenes.rows };
-}
+declare global { var relationsPool: Pool | undefined; var relationsSchemaReady: Promise<void> | undefined; }
+export function dbConfigured(){return Boolean(process.env.DATABASE_URL);}
+function pool(){if(!process.env.DATABASE_URL)throw new Error("DATABASE_URL is not configured.");if(!global.relationsPool)global.relationsPool=new Pool({connectionString:process.env.DATABASE_URL});return global.relationsPool;}
+export async function ensureSchema(){if(!global.relationsSchemaReady){global.relationsSchemaReady=(async()=>{const db=pool();await db.query(`CREATE TABLE IF NOT EXISTS relations_projects (episode_id TEXT PRIMARY KEY, final_url TEXT, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());`);await db.query(`ALTER TABLE relations_projects ADD COLUMN IF NOT EXISTS posted BOOLEAN NOT NULL DEFAULT FALSE;`);await db.query(`CREATE TABLE IF NOT EXISTS relations_custom_episodes (episode_id TEXT PRIMARY KEY,title TEXT NOT NULL,hook TEXT NOT NULL DEFAULT '',source_prompt TEXT NOT NULL DEFAULT '',input_mode TEXT NOT NULL DEFAULT 'idea',scenes JSONB NOT NULL DEFAULT '[]'::jsonb,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());`);await db.query(`CREATE TABLE IF NOT EXISTS relations_scenes (episode_id TEXT NOT NULL, scene_index INTEGER NOT NULL, video_url TEXT, source_video_url TEXT, request_id TEXT,persisted BOOLEAN NOT NULL DEFAULT FALSE, overlay_text TEXT NOT NULL DEFAULT '', overlay_position TEXT NOT NULL DEFAULT 'bottom',overlay_start DOUBLE PRECISION NOT NULL DEFAULT 0, overlay_end DOUBLE PRECISION NOT NULL DEFAULT 0,updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY (episode_id, scene_index));`);await db.query(`ALTER TABLE relations_scenes ADD COLUMN IF NOT EXISTS source_video_url TEXT;`);await db.query(`CREATE TABLE IF NOT EXISTS relations_generation_requests (request_id TEXT PRIMARY KEY,episode_id TEXT,scene_index INTEGER,model TEXT NOT NULL DEFAULT 'seedance-fast',endpoint_id TEXT NOT NULL DEFAULT '',duration DOUBLE PRECISION NOT NULL DEFAULT 0,cost_usd DOUBLE PRECISION,cost_source TEXT,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());`);await db.query(`CREATE INDEX IF NOT EXISTS relations_generation_episode_scene_idx ON relations_generation_requests (episode_id, scene_index, created_at);`);})();}await global.relationsSchemaReady;}
+export async function createCustomEpisode(input:{title:string;hook:string;sourcePrompt:string;inputMode:string;scenes:Scene[]}){await ensureSchema();const id=`custom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,7)}`;await pool().query(`INSERT INTO relations_custom_episodes (episode_id,title,hook,source_prompt,input_mode,scenes) VALUES ($1,$2,$3,$4,$5,$6::jsonb)`,[id,input.title,input.hook,input.sourcePrompt,input.inputMode,JSON.stringify(input.scenes)]);return{id,title:input.title,hook:input.hook,scenes:input.scenes} satisfies Episode;}
+export async function listCustomEpisodes():Promise<Episode[]>{await ensureSchema();const result=await pool().query(`SELECT episode_id,title,hook,scenes FROM relations_custom_episodes ORDER BY created_at DESC`);return result.rows.map((row)=>({id:String(row.episode_id),title:String(row.title),hook:String(row.hook||''),scenes:Array.isArray(row.scenes)?row.scenes:[]}));}
+export async function getCustomEpisode(id:string):Promise<Episode|null>{await ensureSchema();const result=await pool().query(`SELECT episode_id,title,hook,scenes FROM relations_custom_episodes WHERE episode_id=$1`,[id]);const row=result.rows[0];return row?{id:String(row.episode_id),title:String(row.title),hook:String(row.hook||''),scenes:Array.isArray(row.scenes)?row.scenes:[]}:null;}
+export async function saveGenerationRequest(input:{requestId:string;model:string;endpointId:string;duration:number}){await ensureSchema();await pool().query(`INSERT INTO relations_generation_requests (request_id,model,endpoint_id,duration,created_at,updated_at) VALUES ($1,$2,$3,$4,NOW(),NOW()) ON CONFLICT (request_id) DO UPDATE SET model=EXCLUDED.model,endpoint_id=EXCLUDED.endpoint_id,duration=EXCLUDED.duration,updated_at=NOW()`,[input.requestId,input.model,input.endpointId,input.duration]);}
+export async function associateGenerationRequest(input:{requestId:string;episodeId:string;sceneIndex:number}){await ensureSchema();await pool().query(`UPDATE relations_generation_requests SET episode_id=$2,scene_index=$3,updated_at=NOW() WHERE request_id=$1`,[input.requestId,input.episodeId,input.sceneIndex]);}
+export async function saveGenerationCost(input:{requestId:string;costUsd:number;source:string}){await ensureSchema();await pool().query(`UPDATE relations_generation_requests SET cost_usd=$2,cost_source=$3,updated_at=NOW() WHERE request_id=$1`,[input.requestId,input.costUsd,input.source]);}
+export async function getEpisodeGenerationRequests(episodeId:string){await ensureSchema();const[attempts,currentScenes]=await Promise.all([pool().query(`SELECT request_id,episode_id,scene_index,model,endpoint_id,duration,cost_usd,cost_source,created_at FROM relations_generation_requests WHERE episode_id=$1 ORDER BY scene_index,created_at`,[episodeId]),pool().query(`SELECT scene_index,request_id FROM relations_scenes WHERE episode_id=$1 AND request_id IS NOT NULL ORDER BY scene_index`,[episodeId])]);return{attempts:attempts.rows,currentScenes:currentScenes.rows};}
+export async function saveSceneVideo(input:{episodeId:string;sceneIndex:number;videoUrl:string;requestId:string;sourceVideoUrl?:string}){await ensureSchema();await pool().query(`INSERT INTO relations_scenes (episode_id,scene_index,video_url,source_video_url,request_id,persisted,updated_at) VALUES ($1,$2,$3,$4,$5,TRUE,NOW()) ON CONFLICT (episode_id,scene_index) DO UPDATE SET video_url=EXCLUDED.video_url,source_video_url=COALESCE(EXCLUDED.source_video_url,relations_scenes.source_video_url),request_id=EXCLUDED.request_id,persisted=TRUE,updated_at=NOW()`,[input.episodeId,input.sceneIndex,input.videoUrl,input.sourceVideoUrl||null,input.requestId]);}
+export async function saveOverlay(input:{episodeId:string;sceneIndex:number;text:string;position:string;start:number;end:number}){await ensureSchema();await pool().query(`INSERT INTO relations_scenes (episode_id,scene_index,overlay_text,overlay_position,overlay_start,overlay_end,updated_at) VALUES ($1,$2,$3,$4,$5,$6,NOW()) ON CONFLICT (episode_id,scene_index) DO UPDATE SET overlay_text=EXCLUDED.overlay_text,overlay_position=EXCLUDED.overlay_position,overlay_start=EXCLUDED.overlay_start,overlay_end=EXCLUDED.overlay_end,updated_at=NOW()`,[input.episodeId,input.sceneIndex,input.text,input.position,input.start,input.end]);}
+export async function saveFinalVideo(episodeId:string,finalUrl:string){await ensureSchema();await pool().query(`INSERT INTO relations_projects (episode_id,final_url,updated_at) VALUES ($1,$2,NOW()) ON CONFLICT (episode_id) DO UPDATE SET final_url=EXCLUDED.final_url,updated_at=NOW()`,[episodeId,finalUrl]);}
+export async function clearFinalVideo(episodeId:string){await ensureSchema();await pool().query(`INSERT INTO relations_projects (episode_id,final_url,updated_at) VALUES ($1,NULL,NOW()) ON CONFLICT (episode_id) DO UPDATE SET final_url=NULL,updated_at=NOW()`,[episodeId]);}
+export async function getBuiltEpisodeIds(){await ensureSchema();const result=await pool().query(`SELECT episode_id FROM relations_projects WHERE final_url IS NOT NULL AND final_url <> ''`);return result.rows.map((row)=>String(row.episode_id));}
+export async function getPostedEpisodeIds(){await ensureSchema();const result=await pool().query(`SELECT episode_id FROM relations_projects WHERE posted=TRUE`);return result.rows.map((row)=>String(row.episode_id));}
+export async function setEpisodePosted(episodeId:string,posted:boolean){await ensureSchema();await pool().query(`INSERT INTO relations_projects (episode_id,posted,updated_at) VALUES ($1,$2,NOW()) ON CONFLICT (episode_id) DO UPDATE SET posted=EXCLUDED.posted,updated_at=NOW()`,[episodeId,posted]);}
+export async function loadProject(episodeId:string){await ensureSchema();const[project,scenes]=await Promise.all([pool().query(`SELECT final_url FROM relations_projects WHERE episode_id=$1`,[episodeId]),pool().query(`SELECT scene_index,video_url,source_video_url,request_id,persisted,overlay_text,overlay_position,overlay_start,overlay_end FROM relations_scenes WHERE episode_id=$1 ORDER BY scene_index`,[episodeId])]);return{finalUrl:project.rows[0]?.final_url||"",scenes:scenes.rows};}
