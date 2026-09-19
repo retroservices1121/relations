@@ -32,8 +32,8 @@ const SCREENPLAY_SCHEMA = {
       hook: { type: "string", minLength: 1, maxLength: 180 },
       scenes: {
         type: "array",
-        minItems: 3,
-        maxItems: 8,
+        minItems: 2,
+        maxItems: 6,
         items: {
           type: "object",
           additionalProperties: false,
@@ -56,7 +56,7 @@ const SCREENPLAY_SCHEMA = {
             endState: { type: "string", minLength: 1 },
             continuity: { type: "string", minLength: 1 },
             forbidden: { type: "string", minLength: 1 },
-            caption: { type: "string" },
+            caption: { type: "string", minLength: 1, maxLength: 90 },
             characters: {
               type: "array",
               minItems: 1,
@@ -86,15 +86,17 @@ You are writing a short vertical episode for Household Nonsense, a recurring sil
 
 Turn the creator's premise into an actual episode, not generic filler. Build a clear setup, escalation, payoff, and final visual button. Every scene must earn its place and advance the same story. Preserve the creator's central joke and requested events. Do not introduce a phone, laptop, flashlight, remote, new character, or unrelated prop merely to create motion.
 
+Choose the fewest scenes that tell the joke clearly. Every scene must have a different narrative function or materially change the situation. Never create multiple scenes that repeat the same action with only a different object, prop, expression, or camera angle. Combine repeated examples into one chronological escalation scene. For example, if Joe adds a mug, bowl, frying pan, and pot to a dishwasher, show those additions as one escalating scene rather than four separate scenes. Before returning the plan, remove any scene whose story beat can be deleted without changing the setup, escalation, reversal, or payoff. A short idea should usually be 2 to 4 scenes. Use 5 or 6 only when the plot truly has distinct turns. Treat a suggested scene count in a loose premise as flexible unless the creator explicitly says the exact count is mandatory.
+
 Each video scene is generated separately, so every scene must be independently production-ready while maintaining exact continuity with the previous scene. Explicitly state the first frame, visible action in chronological order, and final frame. Repeat story-critical room layout, wardrobe, positions, prop states, lighting state, and character sides whenever they must remain unchanged. Never use vague phrases such as “continue the scene,” “as before,” or “the situation escalates” without spelling out what is visible.
 
 Write simple, achievable animation. Prefer one location and one readable action per scene. Avoid montage unless the creator explicitly asks for one. Use positive physical descriptions for required states. Put prohibited actions and continuity failures in the forbidden field. If a light must stay on, state that it is already on in the first frame and remains the same through the last frame; do not center the wording on switching it off.
 
-The characters do not speak or move their mouths. Dialogue is represented only by the optional caption field and is added later by Studio. Do not put captions, subtitles, speech bubbles, labels, or generated words inside the visual prompt. Keep human mouths closed and visually still. The generated scene should rely on posture, eyes, eyebrows, props, and clear physical action.
+The characters do not speak or move their mouths. Dialogue is represented only by the caption field and is added later by Studio. Give every scene one short, useful overlay caption of no more than 90 characters. The captions should form a concise setup, escalation, and punchline when read in order. Do not leave captions blank. Do not put captions, subtitles, speech bubbles, labels, or generated words inside the visual prompt. Keep human mouths closed and visually still. The generated scene should rely on posture, eyes, eyebrows, props, and clear physical action.
 
 Bed and sleep scenes: Joe and Danda are barefoot for the entire scene. No shoes, sneakers, slippers, boots, or sandals on the bed or beneath bedding. Buddy remains a small black-and-white Maltese-like dog.
 
-Use 3 to 8 scenes, normally 4 to 6. Use 4 to 12 seconds per scene. Return only the requested JSON.`;
+Use 2 to 6 scenes, normally 2 to 4. Use 4 to 12 seconds per scene. Fewer strong scenes are always better than repetitive filler. Return only the requested JSON.`;
 
 function clean(value: unknown, fallback = "") {
   return typeof value === "string" ? value.trim() : fallback;
@@ -106,8 +108,8 @@ function parsePlan(value: unknown): ScreenplayPlan {
   const candidate = value as Partial<ScreenplayPlan>;
   if (
     !Array.isArray(candidate.scenes) ||
-    candidate.scenes.length < 3 ||
-    candidate.scenes.length > 8
+    candidate.scenes.length < 2 ||
+    candidate.scenes.length > 6
   )
     throw new Error("The screenplay model returned an invalid scene count.");
   const scenes = candidate.scenes.map((scene, index) => {
