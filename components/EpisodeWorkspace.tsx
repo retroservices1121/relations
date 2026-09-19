@@ -3,10 +3,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Episode } from "../data/episodes";
 import sceneStyles from "./EpisodeWorkspace.module.css";
+import SpeechInputButton from "./SpeechInputButton";
 
 type SceneState = {
   status: "idle" | "queued" | "generating" | "saving" | "done" | "error";
   videoUrl?: string;
+  sourceVideoUrl?: string;
+  themeBaked?: boolean;
   error?: string;
   requestId?: string;
   persisted?: boolean;
@@ -24,6 +27,8 @@ type PromptSaveStatus = "idle" | "saving" | "saved" | "error";
 type DatabaseScene = {
   scene_index: number;
   video_url?: string | null;
+  source_video_url?: string | null;
+  theme_baked?: boolean | null;
   request_id?: string | null;
   persisted?: boolean;
   overlay_text?: string | null;
@@ -278,6 +283,8 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
             dbStates[index] = {
               status: "done",
               videoUrl: row.video_url,
+              sourceVideoUrl: row.source_video_url || undefined,
+              themeBaked: Boolean(row.theme_baked),
               requestId: row.request_id || undefined,
               persisted: Boolean(row.persisted),
             };
@@ -438,6 +445,8 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
       [index]: {
         status: "done",
         videoUrl: data.url,
+        sourceVideoUrl: data.sourceUrl || sourceUrl,
+        themeBaked: false,
         requestId,
         persisted: true,
       },
@@ -591,7 +600,7 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
       for (let position = 0; position < ready.length; position += 1) {
         const { scene, index, state } = ready[position];
         setSoundtrackProgress(
-          `Regenerating soundtrack ${position + 1} of ${ready.length}…`,
+          `Regenerating scene SFX ${position + 1} of ${ready.length}…`,
         );
         const response = await fetch("/api/generate-soundtrack", {
           method: "POST",
@@ -619,12 +628,14 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
             ...prev[index],
             status: "done",
             videoUrl: data.url,
+            sourceVideoUrl: data.sourceUrl || state.sourceVideoUrl,
+            themeBaked: false,
             persisted: true,
           },
         }));
       }
       setSoundtrackProgress(
-        `✓ Regenerated all ${ready.length} soundtracks with the current Household Nonsense audio style.`,
+        `✓ Regenerated SFX for all ${ready.length} scenes. The theme will be added continuously at final export.`,
       );
       void loadBalance();
     } catch (error) {
@@ -784,7 +795,10 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
       const scenes = episode.scenes.map((_, index) => {
         const overlay = normalizeOverlay(index, overlays[index]);
         return {
-          videoUrl: sceneStates[index].videoUrl,
+          videoUrl:
+            sceneStates[index].themeBaked && sceneStates[index].sourceVideoUrl
+              ? sceneStates[index].sourceVideoUrl
+              : sceneStates[index].videoUrl,
           text: overlay.text,
           position: overlay.position,
           start: overlay.start,
@@ -1005,14 +1019,21 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
                   <span className="eyebrow">
                     SCENE INSTRUCTION — EDIT BEFORE GENERATING
                   </span>
-                  <button
-                    type="button"
-                    className={sceneStyles.textButton}
-                    disabled={currentPrompt === scene.prompt}
-                    onClick={() => resetScenePrompt(index)}
-                  >
-                    Reset original
-                  </button>
+                  <div className={sceneStyles.scenePromptTools}>
+                    <SpeechInputButton
+                      value={currentPrompt}
+                      onChange={(value) => updateScenePrompt(index, value)}
+                      label={`Speak scene ${index + 1}`}
+                    />
+                    <button
+                      type="button"
+                      className={sceneStyles.textButton}
+                      disabled={currentPrompt === scene.prompt}
+                      onClick={() => resetScenePrompt(index)}
+                    >
+                      Reset original
+                    </button>
+                  </div>
                 </div>
                 <textarea
                   value={currentPrompt}
@@ -1086,8 +1107,7 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
               )}
               {state.status === "saving" && (
                 <p className="statusText">
-                  Generation complete. Adding music + SFX and saving the
-                  replacement…
+                  Generation complete. Saving the scene audio and replacement…
                 </p>
               )}
               {state.status === "done" && (
@@ -1206,8 +1226,9 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
         <span className="eyebrow">EPISODE AUDIO</span>
         <h2>Household Nonsense soundtrack</h2>
         <p>
-          Keep the approved visuals and regenerate only the music + sound
-          effects for every scene using the current no-voices audio style.
+          Keep the approved visuals and regenerate only the sound effects for
+          every scene using the current no-voices audio style. The staple theme
+          is added once across the full episode during final export.
         </p>
         <button
           disabled={!allScenesReady || regeneratingSoundtracks}
@@ -1215,7 +1236,7 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
         >
           {regeneratingSoundtracks
             ? soundtrackProgress || "Regenerating Soundtracks…"
-            : "Regenerate All Soundtracks"}
+            : "Regenerate All Scene SFX"}
         </button>
         {soundtrackProgress && !regeneratingSoundtracks && (
           <p className="savedText">{soundtrackProgress}</p>
@@ -1227,8 +1248,8 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
         <h2>Build the finished short</h2>
         <p>
           Studio stitches the approved scenes in order, burns each caption only
-          during its intended moment, keeps the music and sound effects, and
-          saves one final vertical MP4 to R2.
+          during its intended moment, keeps the scene sound effects, then runs
+          one continuous Household Nonsense music bed across the full episode.
         </p>
         <button
           disabled={!allScenesReady || renderingFinal}
