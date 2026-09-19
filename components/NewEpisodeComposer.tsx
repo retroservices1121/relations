@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import styles from "../app/studio/studio.module.css";
+import SpeechInputButton from "./SpeechInputButton";
 
 type Mode = "idea" | "script";
 
@@ -71,6 +72,14 @@ export default function NewEpisodeComposer() {
         onChange={(e) => setTitle(e.target.value)}
         placeholder="Episode title (optional)"
       />
+      <div className={styles.composerPromptTools}>
+        <span>Type your idea or speak it aloud.</span>
+        <SpeechInputButton
+          value={prompt}
+          onChange={setPrompt}
+          label={mode === "idea" ? "Speak episode idea" : "Dictate script"}
+        />
+      </div>
       <textarea
         className={styles.composerInput}
         value={prompt}
