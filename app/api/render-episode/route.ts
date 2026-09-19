@@ -7,6 +7,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { dbConfigured, saveFinalVideo } from "@/lib/db";
 import { putR2Object, r2Configured } from "@/lib/r2";
+import { ensureHouseholdNonsenseTheme } from "@/lib/theme";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -49,6 +50,9 @@ export async function POST(request:Request){let workDir="";try{
  }
  const concatFile=path.join(workDir,"concat.txt");await fs.writeFile(concatFile,renderedParts.map((file)=>`file '${file.replace(/'/g,"'\\''")}'`).join("\n"));
  const joinedPath=path.join(workDir,"joined.mp4");await execFileAsync(ffmpegPath,["-y","-f","concat","-safe","0","-i",concatFile,"-c","copy",joinedPath]);
- const finalPath=path.join(workDir,"final.mp4");await execFileAsync(ffmpegPath,["-y","-fflags","+genpts","-i",joinedPath,"-vf","fps=30,format=yuv420p","-map","0:v:0","-map","0:a?","-c:v","libx264","-profile:v","high","-level","4.0","-preset","medium","-crf","20","-r","30","-vsync","cfr","-c:a","aac","-b:a","192k","-ar","48000","-ac","2","-avoid_negative_ts","make_zero","-movflags","+faststart",finalPath]);
- const finalBytes=await fs.readFile(finalPath);const key=`relations/${cleanPart(episodeId)}/final/final-${Date.now()}.mp4`;const stored=await putR2Object(key,finalBytes,"video/mp4");await saveFinalVideo(episodeId,stored.url);return NextResponse.json({url:stored.url,key:stored.key,rendered:true,nativeSceneAudio:true,socialCompatible:true,videoCodec:"h264",audioCodec:"aac",fps:30});
+ const normalizedPath=path.join(workDir,"normalized.mp4");await execFileAsync(ffmpegPath,["-y","-fflags","+genpts","-i",joinedPath,"-vf","fps=30,format=yuv420p","-map","0:v:0","-map","0:a?","-c:v","libx264","-profile:v","high","-level","4.0","-preset","medium","-crf","20","-r","30","-vsync","cfr","-c:a","aac","-b:a","192k","-ar","48000","-ac","2","-avoid_negative_ts","make_zero","-movflags","+faststart",normalizedPath]);
+ const themeUrl=await ensureHouseholdNonsenseTheme();const themePath=path.join(workDir,"theme.wav");await downloadFile(themeUrl,themePath);
+ const probe=await execFileAsync(ffmpegPath,["-i",normalizedPath,"-hide_banner"],{encoding:"utf8"}).catch((error:{stderr?:string})=>({stderr:error.stderr||""}));const hasSceneAudio=/Audio:/.test(probe.stderr||"");
+ const finalPath=path.join(workDir,"final.mp4");const mixArgs=hasSceneAudio?["-y","-i",normalizedPath,"-stream_loop","-1","-i",themePath,"-filter_complex","[0:a]volume=1.0[sfx];[1:a]volume=0.28[music];[sfx][music]amix=inputs=2:duration=first:dropout_transition=0[a]","-map","0:v:0","-map","[a]","-c:v","copy","-c:a","aac","-b:a","192k","-ar","48000","-ac","2","-shortest","-movflags","+faststart",finalPath]:["-y","-i",normalizedPath,"-stream_loop","-1","-i",themePath,"-map","0:v:0","-map","1:a:0","-c:v","copy","-c:a","aac","-b:a","192k","-ar","48000","-ac","2","-shortest","-movflags","+faststart",finalPath];await execFileAsync(ffmpegPath,mixArgs);
+ const finalBytes=await fs.readFile(finalPath);const key=`relations/${cleanPart(episodeId)}/final/final-${Date.now()}.mp4`;const stored=await putR2Object(key,finalBytes,"video/mp4");await saveFinalVideo(episodeId,stored.url);return NextResponse.json({url:stored.url,key:stored.key,rendered:true,nativeSceneAudio:true,continuousTheme:true,themeMixedAtFinal:true,socialCompatible:true,videoCodec:"h264",audioCodec:"aac",fps:30});
  }catch(error){const message=error instanceof Error?error.message:"Could not render final episode.";const friendly=message.includes("ENOENT")&&message.includes("ffmpeg")?"FFmpeg is not installed in the Railway deploy image. Add RAILPACK_DEPLOY_APT_PACKAGES=ffmpeg and redeploy.":message;return NextResponse.json({error:friendly},{status:500});}finally{if(workDir)await fs.rm(workDir,{recursive:true,force:true}).catch(()=>undefined);}}
