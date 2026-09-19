@@ -32,7 +32,7 @@ export async function POST(request:Request){
   let bytes:Buffer; let soundtrackRequestId="silent";
   if(forceSilentSfx(episodeId,sceneIndex)){bytes=await makeSilentSoundtrack(sourceVideoUrl,duration);}else{const soundtrack=await generateSoundtrackedVideo(sourceVideoUrl,duration); soundtrackRequestId=soundtrack.requestId; const response=await fetch(soundtrack.videoUrl,{cache:"no-store"}); if(!response.ok) throw new Error(`Could not download MMAudio result (${response.status}).`); bytes=Buffer.from(await response.arrayBuffer());}
   const key=`relations/${cleanPart(episodeId)}/soundtracks/scene-${sceneIndex+1}-${Date.now()}.mp4`; const stored=await putR2Object(key,bytes,"video/mp4");
-  if(dbConfigured()) await saveSceneVideo({episodeId,sceneIndex,videoUrl:stored.url,sourceVideoUrl,requestId});
+  if(dbConfigured()) await saveSceneVideo({episodeId,sceneIndex,videoUrl:stored.url,sourceVideoUrl,requestId,themeBaked:false});
   return NextResponse.json({url:stored.url,key:stored.key,sourceUrl:sourceVideoUrl,requestId:soundtrackRequestId,persisted:dbConfigured(),silentSfx:forceSilentSfx(episodeId,sceneIndex)});
  }catch(error){return NextResponse.json({error:error instanceof Error?error.message:"Could not generate the scene SFX."},{status:500});}
 }
