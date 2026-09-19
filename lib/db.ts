@@ -37,6 +37,9 @@ export async function ensureSchema() {
         `ALTER TABLE relations_scenes ADD COLUMN IF NOT EXISTS source_video_url TEXT;`,
       );
       await db.query(
+        `ALTER TABLE relations_scenes ADD COLUMN IF NOT EXISTS theme_baked BOOLEAN NOT NULL DEFAULT TRUE;`,
+      );
+      await db.query(
         `ALTER TABLE relations_scenes ADD COLUMN IF NOT EXISTS scene_prompt TEXT;`,
       );
       await db.query(
@@ -158,16 +161,18 @@ export async function saveSceneVideo(input: {
   videoUrl: string;
   requestId: string;
   sourceVideoUrl?: string;
+  themeBaked?: boolean;
 }) {
   await ensureSchema();
   await pool().query(
-    `INSERT INTO relations_scenes (episode_id,scene_index,video_url,source_video_url,request_id,persisted,updated_at) VALUES ($1,$2,$3,$4,$5,TRUE,NOW()) ON CONFLICT (episode_id,scene_index) DO UPDATE SET video_url=EXCLUDED.video_url,source_video_url=COALESCE(EXCLUDED.source_video_url,relations_scenes.source_video_url),request_id=EXCLUDED.request_id,persisted=TRUE,updated_at=NOW()`,
+    `INSERT INTO relations_scenes (episode_id,scene_index,video_url,source_video_url,request_id,persisted,theme_baked,updated_at) VALUES ($1,$2,$3,$4,$5,TRUE,$6,NOW()) ON CONFLICT (episode_id,scene_index) DO UPDATE SET video_url=EXCLUDED.video_url,source_video_url=COALESCE(EXCLUDED.source_video_url,relations_scenes.source_video_url),request_id=EXCLUDED.request_id,persisted=TRUE,theme_baked=EXCLUDED.theme_baked,updated_at=NOW()`,
     [
       input.episodeId,
       input.sceneIndex,
       input.videoUrl,
       input.sourceVideoUrl || null,
       input.requestId,
+      input.themeBaked ?? false,
     ],
   );
 }
@@ -246,7 +251,7 @@ export async function loadProject(episodeId: string) {
       [episodeId],
     ),
     pool().query(
-      `SELECT scene_index,video_url,source_video_url,request_id,persisted,overlay_text,overlay_position,overlay_start,overlay_end,scene_prompt FROM relations_scenes WHERE episode_id=$1 ORDER BY scene_index`,
+      `SELECT scene_index,video_url,source_video_url,request_id,persisted,theme_baked,overlay_text,overlay_position,overlay_start,overlay_end,scene_prompt FROM relations_scenes WHERE episode_id=$1 ORDER BY scene_index`,
       [episodeId],
     ),
   ]);
