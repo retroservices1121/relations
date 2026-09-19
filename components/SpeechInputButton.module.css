@@ -1,0 +1,48 @@
+.wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.button {
+  appearance: none;
+  border: 1px solid #cdbfaf;
+  border-radius: 10px;
+  background: #fffaf3;
+  color: #5f554a;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  padding: 9px 11px;
+}
+
+.button:hover:not(:disabled) {
+  border-color: #b45847;
+  color: #9e493d;
+}
+
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.listening {
+  background: #b45847;
+  border-color: #b45847;
+  color: white;
+}
+
+.status {
+  color: #8a8074;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.error {
+  color: #a33f34;
+  font-size: 10px;
+  font-weight: 700;
+}
