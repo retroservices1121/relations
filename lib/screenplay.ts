@@ -60,7 +60,6 @@ const SCREENPLAY_SCHEMA = {
             characters: {
               type: "array",
               minItems: 1,
-              uniqueItems: true,
               items: { type: "string", enum: ["joe", "danda", "buddy"] },
             },
           },
@@ -204,6 +203,16 @@ export function screenplayConfigured() {
   return Boolean(process.env.OPENAI_API_KEY?.trim());
 }
 
+function screenplayModel() {
+  const configured = process.env.OPENAI_SCREENPLAY_MODEL?.trim();
+
+  // Correct the previously documented truncated model ID so existing Railway
+  // deployments recover without sending an invalid name to OpenAI.
+  if (configured === "gpt-5.6-terr") return "gpt-5.6-terra";
+
+  return configured || "gpt-5-mini";
+}
+
 export async function writeEpisodeScreenplay(input: {
   premise: string;
   mode: "idea" | "script";
@@ -213,7 +222,7 @@ export async function writeEpisodeScreenplay(input: {
     throw new Error(
       "OPENAI_API_KEY is not configured. Relations requires the screenplay AI to create an episode plan.",
     );
-  const model = process.env.OPENAI_SCREENPLAY_MODEL?.trim() || "gpt-5-mini";
+  const model = screenplayModel();
   const instruction =
     input.mode === "script"
       ? "Adapt the creator-provided script into production scenes. Preserve its plot, scene order, joke, and ending. Improve only clarity, animation blocking, and continuity."
@@ -293,7 +302,7 @@ export async function rewriteSceneWithAi(input: {
     throw new Error(
       "OPENAI_API_KEY is not configured. Relations requires the screenplay AI to revise scenes.",
     );
-  const model = process.env.OPENAI_SCREENPLAY_MODEL?.trim() || "gpt-5-mini";
+  const model = screenplayModel();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 90000);
   const userPrompt = `EPISODE: ${input.episodeTitle}
