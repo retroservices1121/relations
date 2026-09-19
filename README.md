@@ -8,6 +8,7 @@ Private AI production studio for short-form cartoon relationship videos featurin
 - **Railway Postgres** — episode/project metadata, saved scenes, overlay settings, final render records
 - **Cloudflare R2** — permanent MP4 storage for generated scenes and final episodes
 - **fal.ai / Seedance** — scene generation
+- **OpenAI** — idea-to-screenplay writing and individual scene rewrites
 - **FFmpeg** — final scene stitching and burned-in text overlays
 
 The database tables are created automatically on first use, so there is no manual migration step for the current Studio schema.
@@ -22,6 +23,8 @@ The database tables are created automatically on first use, so there is no manua
 
 ```bash
 FAL_KEY=
+OPENAI_API_KEY=
+OPENAI_SCREENPLAY_MODEL=gpt-5.6-terra
 DATABASE_URL=
 R2_ACCOUNT_ID=
 R2_ACCESS_KEY_ID=
@@ -29,6 +32,9 @@ R2_SECRET_ACCESS_KEY=
 R2_BUCKET=relations-media
 R2_PUBLIC_URL=https://your-public-r2-domain.example
 ```
+
+`OPENAI_SCREENPLAY_MODEL` must use the complete OpenAI API model ID. The
+recommended value is `gpt-5.6-terra`; `gpt-5.6-terr` is incomplete and invalid.
 
 `R2_PUBLIC_URL` must be the public base URL that serves objects in the bucket. Do not include a trailing slash.
 
