@@ -1,0 +1,105 @@
+.sceneScriptEditor {
+  margin-top: 14px;
+  padding: 14px;
+  background: #fffdf8;
+  border: 1px solid #d8cec0;
+  border-radius: 13px;
+}
+
+.sceneScriptHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 9px;
+}
+
+.sceneScriptEditor textarea {
+  display: block;
+  width: 100%;
+  min-height: 190px;
+  resize: vertical;
+  background: #fffaf3;
+  color: #2a2723;
+  border: 1px solid #d8cec0;
+  border-radius: 10px;
+  padding: 12px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.sceneScriptEditor p {
+  margin: 8px 0 0;
+  font-size: 10px;
+}
+
+.aiRevision {
+  display: grid;
+  gap: 9px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #e2d8cc;
+}
+
+.aiRevision label {
+  display: grid;
+  gap: 7px;
+  color: #756b60;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.aiRevision input {
+  width: 100%;
+  background: #fffaf3;
+  color: #2a2723;
+  border: 1px solid #d8cec0;
+  border-radius: 10px;
+  padding: 11px 12px;
+  font: inherit;
+}
+
+.aiRevision button {
+  width: max-content;
+  margin-top: 0 !important;
+}
+
+.textButton {
+  margin: 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
+  color: #8a654d !important;
+  border: 0;
+  font-size: 10px !important;
+  text-decoration: underline;
+}
+
+.textButton:hover {
+  color: #b45847 !important;
+}
+
+.textButton:disabled {
+  color: #aaa197 !important;
+  text-decoration: none;
+  cursor: default;
+}
+
+.sceneActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+
+.sceneActions button {
+  margin-top: 0 !important;
+}
+
+.sceneActions a {
+  display: inline-flex;
+  align-items: center;
+  padding: 10px 13px;
+  font-weight: 700;
+}

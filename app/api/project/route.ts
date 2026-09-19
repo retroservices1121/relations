@@ -1,22 +1,38 @@
 import { NextResponse } from "next/server";
-import { dbConfigured, loadProject, saveOverlay, clearFinalVideo } from "@/lib/db";
+import {
+  dbConfigured,
+  loadProject,
+  saveOverlay,
+  saveScenePrompt,
+  clearFinalVideo,
+} from "@/lib/db";
 
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
   try {
     if (!dbConfigured()) {
-      return NextResponse.json({ error: "DATABASE_URL is not configured." }, { status: 503 });
+      return NextResponse.json(
+        { error: "DATABASE_URL is not configured." },
+        { status: 503 },
+      );
     }
     const { searchParams } = new URL(request.url);
     const episodeId = searchParams.get("episodeId") || "";
-    if (!episodeId) return NextResponse.json({ error: "episodeId is required." }, { status: 400 });
+    if (!episodeId)
+      return NextResponse.json(
+        { error: "episodeId is required." },
+        { status: 400 },
+      );
 
     const project = await loadProject(episodeId);
     return NextResponse.json(project);
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Could not load project." },
+      {
+        error:
+          error instanceof Error ? error.message : "Could not load project.",
+      },
       { status: 500 },
     );
   }
@@ -25,12 +41,19 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     if (!dbConfigured()) {
-      return NextResponse.json({ error: "DATABASE_URL is not configured." }, { status: 503 });
+      return NextResponse.json(
+        { error: "DATABASE_URL is not configured." },
+        { status: 503 },
+      );
     }
 
     const body = await request.json();
     const episodeId = typeof body.episodeId === "string" ? body.episodeId : "";
-    if (!episodeId) return NextResponse.json({ error: "episodeId is required." }, { status: 400 });
+    if (!episodeId)
+      return NextResponse.json(
+        { error: "episodeId is required." },
+        { status: 400 },
+      );
 
     if (body.action === "clear-final") {
       await clearFinalVideo(episodeId);
@@ -39,10 +62,34 @@ export async function POST(request: Request) {
 
     const sceneIndex = Number(body.sceneIndex);
     if (!Number.isInteger(sceneIndex) || sceneIndex < 0) {
-      return NextResponse.json({ error: "A valid scene index is required." }, { status: 400 });
+      return NextResponse.json(
+        { error: "A valid scene index is required." },
+        { status: 400 },
+      );
     }
 
-    const position = ["top", "middle", "bottom"].includes(body.position) ? body.position : "bottom";
+    if (body.action === "save-scene-prompt") {
+      const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+      if (prompt.length < 10) {
+        return NextResponse.json(
+          { error: "The scene instruction must be at least 10 characters." },
+          { status: 400 },
+        );
+      }
+      if (prompt.length > 20000) {
+        return NextResponse.json(
+          { error: "The scene instruction is too long." },
+          { status: 400 },
+        );
+      }
+      await saveScenePrompt({ episodeId, sceneIndex, prompt });
+      await clearFinalVideo(episodeId);
+      return NextResponse.json({ ok: true, prompt });
+    }
+
+    const position = ["top", "middle", "bottom"].includes(body.position)
+      ? body.position
+      : "bottom";
     await saveOverlay({
       episodeId,
       sceneIndex,
@@ -55,7 +102,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Could not save project." },
+      {
+        error:
+          error instanceof Error ? error.message : "Could not save project.",
+      },
       { status: 500 },
     );
   }

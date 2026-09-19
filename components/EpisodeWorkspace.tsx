@@ -2,42 +2,1274 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Episode } from "../data/episodes";
+import sceneStyles from "./EpisodeWorkspace.module.css";
 
-type SceneState = { status: "idle" | "queued" | "generating" | "saving" | "done" | "error"; videoUrl?: string; error?: string; requestId?: string; persisted?: boolean };
+type SceneState = {
+  status: "idle" | "queued" | "generating" | "saving" | "done" | "error";
+  videoUrl?: string;
+  error?: string;
+  requestId?: string;
+  persisted?: boolean;
+};
 type OverlayPosition = "top" | "middle" | "bottom";
-type OverlayConfig = { text: string; position: OverlayPosition; start: number; end: number };
+type OverlayConfig = {
+  text: string;
+  position: OverlayPosition;
+  start: number;
+  end: number;
+};
 type TimedCaption = { text: string; start: number; end: number };
-type CharacterKey = "joe" | "danda";
-type DatabaseScene = { scene_index: number; video_url?: string | null; request_id?: string | null; persisted?: boolean; overlay_text?: string | null; overlay_position?: string | null; overlay_start?: number | null; overlay_end?: number | null };
+type CharacterKey = "joe" | "danda" | "buddy";
+type PromptSaveStatus = "idle" | "saving" | "saved" | "error";
+type DatabaseScene = {
+  scene_index: number;
+  video_url?: string | null;
+  request_id?: string | null;
+  persisted?: boolean;
+  overlay_text?: string | null;
+  overlay_position?: string | null;
+  overlay_start?: number | null;
+  overlay_end?: number | null;
+  scene_prompt?: string | null;
+};
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const JOE_STORAGE_KEY = "relations:character:joe";
 const DANDA_STORAGE_KEY = "relations:character:danda";
+const BUDDY_STORAGE_KEY = "relations:character:buddy";
 
-function parseTimedCaptions(value: unknown, fallbackStart: number, fallbackEnd: number): TimedCaption[] { const text=typeof value==="string"?value:"";const lines=text.split("\n").map((line)=>line.trim()).filter(Boolean);const parsed=lines.map((line)=>{const match=line.match(/^\[(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\]\s*(.+)$/);if(!match)return null;return{start:Number(match[1]),end:Number(match[2]),text:match[3].trim()};});if(parsed.length>0&&parsed.every(Boolean))return parsed as TimedCaption[];return text.trim()?[{text:text.trim(),start:fallbackStart,end:fallbackEnd}]:[]; }
-function isMessageCaption(text:string){return text.trim().startsWith("💬");}
-function displayCaption(text:string){return isMessageCaption(text)?text.trim().replace(/^💬\s*/,""):text;}
-function ScenePreview({ videoUrl, overlay }: { videoUrl: string; overlay: OverlayConfig }) { const[currentTime,setCurrentTime]=useState(0);const captions=useMemo(()=>parseTimedCaptions(overlay.text,overlay.start,overlay.end),[overlay.text,overlay.start,overlay.end]);const visible=captions.find((caption)=>currentTime>=caption.start&&currentTime<=caption.end);const message=visible?isMessageCaption(visible.text):false;return <div className="videoPreviewWrap"><video className="sceneVideo" src={videoUrl} controls playsInline preload="metadata" onPlay={(event)=>setCurrentTime(event.currentTarget.currentTime||0)} onTimeUpdate={(event)=>setCurrentTime(event.currentTarget.currentTime||0)} onSeeked={(event)=>setCurrentTime(event.currentTarget.currentTime||0)} onLoadedMetadata={()=>setCurrentTime(0)} />{visible&&<div className={`${message?"messageBubblePreview":"overlayPreview"} overlay-${overlay.position}`}>{displayCaption(visible.text)}</div>}</div>; }
+function parseTimedCaptions(
+  value: unknown,
+  fallbackStart: number,
+  fallbackEnd: number,
+): TimedCaption[] {
+  const text = typeof value === "string" ? value : "";
+  const lines = text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const parsed = lines.map((line) => {
+    const match = line.match(
+      /^\[(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\]\s*(.+)$/,
+    );
+    if (!match) return null;
+    return {
+      start: Number(match[1]),
+      end: Number(match[2]),
+      text: match[3].trim(),
+    };
+  });
+  if (parsed.length > 0 && parsed.every(Boolean))
+    return parsed as TimedCaption[];
+  return text.trim()
+    ? [{ text: text.trim(), start: fallbackStart, end: fallbackEnd }]
+    : [];
+}
+function isMessageCaption(text: string) {
+  return text.trim().startsWith("💬");
+}
+function displayCaption(text: string) {
+  return isMessageCaption(text) ? text.trim().replace(/^💬\s*/, "") : text;
+}
+function ScenePreview({
+  videoUrl,
+  overlay,
+}: {
+  videoUrl: string;
+  overlay: OverlayConfig;
+}) {
+  const [currentTime, setCurrentTime] = useState(0);
+  const captions = useMemo(
+    () => parseTimedCaptions(overlay.text, overlay.start, overlay.end),
+    [overlay.text, overlay.start, overlay.end],
+  );
+  const visible = captions.find(
+    (caption) => currentTime >= caption.start && currentTime <= caption.end,
+  );
+  const message = visible ? isMessageCaption(visible.text) : false;
+  return (
+    <div className="videoPreviewWrap">
+      <video
+        className="sceneVideo"
+        src={videoUrl}
+        controls
+        playsInline
+        preload="metadata"
+        onPlay={(event) => setCurrentTime(event.currentTarget.currentTime || 0)}
+        onTimeUpdate={(event) =>
+          setCurrentTime(event.currentTarget.currentTime || 0)
+        }
+        onSeeked={(event) =>
+          setCurrentTime(event.currentTarget.currentTime || 0)
+        }
+        onLoadedMetadata={() => setCurrentTime(0)}
+      />
+      {visible && (
+        <div
+          className={`${message ? "messageBubblePreview" : "overlayPreview"} overlay-${overlay.position}`}
+        >
+          {displayCaption(visible.text)}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
-  const [joeUrl,setJoeUrl]=useState("");const[dandaUrl,setDandaUrl]=useState("");const[model,setModel]=useState("seedance-fast");const[sceneStates,setSceneStates]=useState<Record<number,SceneState>>({});const[overlays,setOverlays]=useState<Record<number,OverlayConfig>>({});const[uploading,setUploading]=useState<CharacterKey|null>(null);const[uploadError,setUploadError]=useState("");const[storageError,setStorageError]=useState("");const[balance,setBalance]=useState<number|null>(null);const[balanceError,setBalanceError]=useState("");const[projectLoaded,setProjectLoaded]=useState(false);const[renderingFinal,setRenderingFinal]=useState(false);const[finalUrl,setFinalUrl]=useState("");const[finalError,setFinalError]=useState("");const[regeneratingSoundtracks,setRegeneratingSoundtracks]=useState(false);const[soundtrackProgress,setSoundtrackProgress]=useState("");const[soundtrackError,setSoundtrackError]=useState("");const overlayTimers=useRef<Record<number,ReturnType<typeof setTimeout>>>({});const pollingRequests=useRef<Set<string>>(new Set());const projectStorageKey=`relations:project:${episode.id}`;
-  const generationProvider=model.startsWith("higgsfield-")?"Higgsfield":"fal";
-  function defaultOverlay(index:number):OverlayConfig{const scene=episode.scenes[index];return{text:scene.caption||"",position:"bottom",start:scene.captionStart??0,end:scene.captionEnd??scene.duration};}
-  function normalizeOverlay(index:number,value:unknown):OverlayConfig{const defaults=defaultOverlay(index);if(!value||typeof value!=="object")return defaults;const candidate=value as Partial<OverlayConfig>;const position:OverlayPosition=candidate.position==="top"||candidate.position==="middle"||candidate.position==="bottom"?candidate.position:defaults.position;const hasSavedText=typeof candidate.text==="string"&&candidate.text.trim().length>0;const text=hasSavedText?candidate.text as string:defaults.text;const start=hasSavedText&&Number.isFinite(Number(candidate.start))?Number(candidate.start):defaults.start;const end=hasSavedText&&Number.isFinite(Number(candidate.end))?Number(candidate.end):defaults.end;return{text,position,start,end};}
-  async function loadBalance(){try{const response=await fetch("/api/fal-balance",{cache:"no-store"});const data=await response.json();if(!response.ok)throw new Error(data.error||"Could not load balance");setBalance(typeof data.balance==="number"?data.balance:null);setBalanceError("");}catch(error){setBalanceError(error instanceof Error?error.message:"Balance unavailable");}}
-  useEffect(()=>{let cancelled=false;setJoeUrl(localStorage.getItem(JOE_STORAGE_KEY)||"");setDandaUrl(localStorage.getItem(DANDA_STORAGE_KEY)||"");const defaults=Object.fromEntries(episode.scenes.map((_,index)=>[index,defaultOverlay(index)]));let localStates:Record<number,SceneState>={};let localOverlays:Record<number,OverlayConfig>=defaults;let localFinalUrl="";try{const saved=localStorage.getItem(projectStorageKey);if(saved){const project=JSON.parse(saved) as{sceneStates?:Record<number,SceneState>;overlays?:Record<number,unknown>;finalUrl?:string};localStates=project.sceneStates||{};localOverlays=Object.fromEntries(episode.scenes.map((_,index)=>[index,normalizeOverlay(index,project.overlays?.[index])]));localFinalUrl=typeof project.finalUrl==="string"?project.finalUrl:"";}}catch{}setSceneStates(localStates);setOverlays(localOverlays);setFinalUrl(localFinalUrl);void(async()=>{try{const response=await fetch(`/api/project?episodeId=${encodeURIComponent(episode.id)}`,{cache:"no-store"});const data=await response.json();if(!response.ok)throw new Error(data.error||"Could not load Railway project data");if(cancelled)return;const dbStates:Record<number,SceneState>={};const dbOverlays:Record<number,OverlayConfig>={...defaults};for(const row of(data.scenes||[])as DatabaseScene[]){const index=Number(row.scene_index);if(!Number.isInteger(index)||index<0||index>=episode.scenes.length)continue;if(row.video_url)dbStates[index]={status:"done",videoUrl:row.video_url,requestId:row.request_id||undefined,persisted:Boolean(row.persisted)};const fallback=defaults[index];dbOverlays[index]=normalizeOverlay(index,{text:row.overlay_text??fallback.text,position:row.overlay_position??fallback.position,start:row.overlay_start??fallback.start,end:row.overlay_end??fallback.end});}setSceneStates((prev)=>({...prev,...dbStates}));setOverlays((prev)=>({...prev,...dbOverlays}));setFinalUrl(typeof data.finalUrl==="string"?data.finalUrl:"");setStorageError("");}catch(error){if(!cancelled)setStorageError(`${error instanceof Error?error.message:"Railway project storage unavailable"} Local device cache is being used until Postgres is connected.`);}finally{if(!cancelled)setProjectLoaded(true);}})();void loadBalance();return()=>{cancelled=true;};},[episode.id,episode.scenes,projectStorageKey]);
-  useEffect(()=>{if(!projectLoaded)return;localStorage.setItem(projectStorageKey,JSON.stringify({sceneStates,overlays,finalUrl}));},[sceneStates,overlays,finalUrl,projectLoaded,projectStorageKey]);
-  useEffect(()=>{if(!projectLoaded)return;for(const[key,state]of Object.entries(sceneStates)){if(state.status!=="queued"&&state.status!=="generating")continue;const index=Number(key);if(!state.requestId){setSceneStates((prev)=>({...prev,[index]:{status:"idle"}}));continue;}if(pollingRequests.current.has(state.requestId))continue;const requestId=state.requestId;pollingRequests.current.add(requestId);void pollForResult(index,requestId,model).catch((error)=>setSceneStates((prev)=>({...prev,[index]:{status:"error",requestId,error:error instanceof Error?error.message:"Could not resume generation"}}))).finally(()=>pollingRequests.current.delete(requestId));}},[projectLoaded,sceneStates,model]);
-  function persistReference(character:CharacterKey,url:string){if(character==="joe"){setJoeUrl(url);if(url)localStorage.setItem(JOE_STORAGE_KEY,url);else localStorage.removeItem(JOE_STORAGE_KEY);}else{setDandaUrl(url);if(url)localStorage.setItem(DANDA_STORAGE_KEY,url);else localStorage.removeItem(DANDA_STORAGE_KEY);}}
-  async function uploadReference(character:CharacterKey,file?:File){if(!file)return;setUploading(character);setUploadError("");try{const formData=new FormData();formData.append("file",file);const response=await fetch("/api/upload-reference",{method:"POST",body:formData});const data=await response.json();if(!response.ok)throw new Error(data.error||"Upload failed");if(!data.url)throw new Error("Upload completed without a file URL");persistReference(character,data.url);}catch(error){setUploadError(error instanceof Error?error.message:"Upload failed");}finally{setUploading(null);}}
-  async function saveGeneratedVideo(index:number,requestId:string,sourceUrl:string){setSceneStates((prev)=>({...prev,[index]:{...prev[index],status:"saving",requestId,videoUrl:sourceUrl}}));const response=await fetch("/api/persist-video",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sourceUrl,episodeId:episode.id,sceneIndex:index,requestId})});const data=await response.json();if(!response.ok){setStorageError(data.error||"Permanent storage is not configured.");setSceneStates((prev)=>({...prev,[index]:{status:"done",videoUrl:sourceUrl,requestId,persisted:false}}));return;}setStorageError("");setSceneStates((prev)=>({...prev,[index]:{status:"done",videoUrl:data.url,requestId,persisted:true}}));}
-  async function pollForResult(index:number,requestId:string,selectedModel:string){for(let attempt=0;attempt<180;attempt+=1){await sleep(3000);const response=await fetch(`/api/generate-video?requestId=${encodeURIComponent(requestId)}&model=${encodeURIComponent(selectedModel)}`,{cache:"no-store"});const data=await response.json();if(!response.ok)throw new Error(data.error||"Could not check generation status");if(data.status==="COMPLETED"&&data.videoUrl){await saveGeneratedVideo(index,requestId,data.videoUrl);void loadBalance();return;}setSceneStates((prev)=>({...prev,[index]:{...prev[index],status:"generating",requestId}}));}throw new Error("Generation is still running. Try Generate Scene again in a moment to start a new job.");}
-  function clearSavedFinal(){setFinalUrl("");setFinalError("");void fetch("/api/project",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"clear-final",episodeId:episode.id})}).catch(()=>undefined);}
-  async function generateScene(index:number){const scene=episode.scenes[index];const explicitKeys=(scene.characters||[]).filter((key):key is CharacterKey=>key==="joe"||key==="danda");const characterKeys:CharacterKey[]=explicitKeys.length?explicitKeys:["joe","danda"];const referenceUrls:Record<CharacterKey,string>={joe:joeUrl,danda:dandaUrl};const missing=characterKeys.filter((key)=>!referenceUrls[key].trim());if(missing.length){setSceneStates((prev)=>({...prev,[index]:{status:"error",error:`Upload the approved cartoon reference for ${missing.map((key)=>key==="joe"?"Joe":"Danda").join(" and ")} before generating this scene.`}}));return;}const imageUrls=characterKeys.map((key)=>referenceUrls[key].trim());const referenceMap=characterKeys.map((key,position)=>`@Image${position+1} is ${key==="joe"?"Joe":"Danda"}.`).join(" ");const selectedModel=model;clearSavedFinal();setSceneStates((prev)=>({...prev,[index]:{status:"queued"}}));try{const response=await fetch("/api/generate-video",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:selectedModel,duration:scene.duration,imageUrls,characterKeys,prompt:`Use only the approved recurring cartoon character assets required for this scene. ${referenceMap} Preserve the referenced character faces, hairstyles, clothing identity and overall 2D cartoon design. Do not introduce a referenced character who is not listed for this scene. CHARACTER PROPORTIONS ARE LOCKED: Joe has an average, slightly stocky everyday-dad build. Danda is only moderately shorter than Joe, like a normal adult couple with a modest height difference. Both are normally proportioned adults. STYLE IS LOCKED: simple flat 2D cartoon comedy with clean bold outlines, exaggerated facial expressions, physical reactions, playful visual timing and readable uncluttered backgrounds. Use visual pantomime and held facial poses. All soundtrack and text overlays are added later in Studio. Vertical 9:16 relationship-comedy short. Scene action: ${scene.prompt}`})});const data=await response.json();if(!response.ok)throw new Error(data.error||"Generation failed");if(!data.requestId)throw new Error("The selected video provider did not return a request ID");setSceneStates((prev)=>({...prev,[index]:{status:"generating",requestId:data.requestId}}));await pollForResult(index,data.requestId,selectedModel);}catch(error){setSceneStates((prev)=>({...prev,[index]:{status:"error",error:error instanceof Error?error.message:"Generation failed"}}));void loadBalance();}}
-  async function regenerateAllSoundtracks(){if(regeneratingSoundtracks)return;const ready=episode.scenes.map((scene,index)=>({scene,index,state:sceneStates[index]})).filter(({state})=>state?.status==="done"&&Boolean(state.videoUrl));if(ready.length!==episode.scenes.length){setSoundtrackError("All scenes must be generated before regenerating the episode soundtrack.");return;}setRegeneratingSoundtracks(true);setSoundtrackError("");clearSavedFinal();try{for(let position=0;position<ready.length;position+=1){const{scene,index,state}=ready[position];setSoundtrackProgress(`Regenerating soundtrack ${position+1} of ${ready.length}…`);const response=await fetch("/api/generate-soundtrack",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({videoUrl:state.videoUrl,episodeId:episode.id,sceneIndex:index,duration:scene.duration,requestId:state.requestId||crypto.randomUUID()})});const data=await response.json();if(!response.ok)throw new Error(data.error||`Could not regenerate Scene ${index+1} soundtrack.`);if(!data.url)throw new Error(`Scene ${index+1} soundtrack completed without a saved URL.`);setSceneStates((prev)=>({...prev,[index]:{...prev[index],status:"done",videoUrl:data.url,persisted:true}}));}setSoundtrackProgress(`✓ Regenerated all ${ready.length} soundtracks with the current Household Nonsense audio style.`);void loadBalance();}catch(error){setSoundtrackError(error instanceof Error?error.message:"Could not regenerate all soundtracks.");setSoundtrackProgress("");}finally{setRegeneratingSoundtracks(false);}}
-  function updateOverlay(index:number,patch:Partial<OverlayConfig>){const current=normalizeOverlay(index,overlays[index]);const next={...current,...patch};setOverlays((prev)=>({...prev,[index]:next}));clearSavedFinal();if(overlayTimers.current[index])clearTimeout(overlayTimers.current[index]);overlayTimers.current[index]=setTimeout(()=>{void fetch("/api/project",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({episodeId:episode.id,sceneIndex:index,...next})}).then(async(response)=>{if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.error||"Could not save overlay to Railway Postgres");}setStorageError("");}).catch((error)=>setStorageError(error instanceof Error?error.message:"Could not save overlay to Railway Postgres"));},500);}
-  const allScenesReady=useMemo(()=>episode.scenes.every((_,index)=>sceneStates[index]?.status==="done"&&Boolean(sceneStates[index]?.videoUrl)&&sceneStates[index]?.persisted===true),[episode.scenes,sceneStates]);
-  async function buildFinalVideo(){if(!allScenesReady){setFinalError("Generate and permanently save every scene before building the final episode.");return;}setRenderingFinal(true);setFinalError("");try{const scenes=episode.scenes.map((_,index)=>{const overlay=normalizeOverlay(index,overlays[index]);return{videoUrl:sceneStates[index].videoUrl,text:overlay.text,position:overlay.position,start:overlay.start,end:overlay.end};});const response=await fetch("/api/render-episode",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({episodeId:episode.id,scenes})});const data=await response.json();if(!response.ok)throw new Error(data.error||"Final render failed");setFinalUrl(data.url);}catch(error){setFinalError(error instanceof Error?error.message:"Final render failed");}finally{setRenderingFinal(false);}}
-  function finalDownloadUrl(){return`/api/download-video?url=${encodeURIComponent(finalUrl)}&filename=${encodeURIComponent(`${episode.id}.mp4`)}`;}
-  return <div className="workspace"><div className="workspaceTop"><div><a className="backLink" href="/">← Episode Library</a><span className="eyebrow">JOE + DANDA</span><h1>{episode.title}</h1><p>{episode.hook}</p></div><div className="workspaceControls">{generationProvider==="fal"?<div className="creditBalance" onClick={()=>void loadBalance()} title="Tap to refresh fal balance"><span>fal credits</span><b>{balance===null?(balanceError?"Unavailable":"Loading…"):`$${balance.toFixed(2)}`}</b></div>:<div className="creditBalance" title="Generation is routed through the Higgsfield API"><span>provider</span><b>Higgsfield API</b></div>}<label>Model<select value={model} onChange={(event)=>setModel(event.target.value)}><option value="higgsfield-seedance-2.5">Higgsfield · Seedance 2.5</option><option value="seedance-fast">fal · Seedance 2 Fast</option><option value="seedance-standard">fal · Seedance 2 Standard</option></select></label></div></div><section className="referencePanel"><div><span className="eyebrow">LOCKED CHARACTER LIBRARY</span><h2>Joe + Danda references</h2><p>Use the final cartoon character images here. Once uploaded, they are remembered and reused automatically across every episode on this device.</p><p className="statusText">Silent-cartoon format is locked: Studio adds soundtrack and precisely timed overlays after generation.</p><p className="statusText">Production storage: Railway Postgres saves project data and Cloudflare R2 saves video files.</p>{uploadError&&<p className="errorText">{uploadError}</p>}{storageError&&<p className="errorText">{storageError}</p>}</div><div className="referenceInputs"><div className="characterRef"><label>Joe cartoon reference {joeUrl&&"✓ Locked"}</label>{joeUrl&&<img className="referenceThumb" src={joeUrl} alt="Joe cartoon reference"/>}<label className="uploadButton">{uploading==="joe"?"Uploading Joe…":joeUrl?"Replace Joe Cartoon":"Upload Joe Cartoon"}<input type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading!==null} onChange={(event)=>uploadReference("joe",event.target.files?.[0])}/></label><input value={joeUrl} onChange={(event)=>persistReference("joe",event.target.value)} placeholder="Or paste the approved Joe cartoon URL"/></div><div className="characterRef"><label>Danda cartoon reference {dandaUrl&&"✓ Locked"}</label>{dandaUrl&&<img className="referenceThumb" src={dandaUrl} alt="Danda cartoon reference"/>}<label className="uploadButton">{uploading==="danda"?"Uploading Danda…":dandaUrl?"Replace Danda Cartoon":"Upload Danda Cartoon"}<input type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading!==null} onChange={(event)=>uploadReference("danda",event.target.files?.[0])}/></label><input value={dandaUrl} onChange={(event)=>persistReference("danda",event.target.value)} placeholder="Or paste the approved Danda cartoon URL"/></div></div></section><div className="sceneList">{episode.scenes.map((scene,index)=>{const state=sceneStates[index]||{status:"idle"};const overlay=normalizeOverlay(index,overlays[index]);const timed=parseTimedCaptions(overlay.text,overlay.start,overlay.end);return <article className="sceneCard" key={index}><div className="sceneMeta"><span>SCENE {index+1}</span><b>{scene.duration}s</b></div><h3>{scene.prompt}</h3>{state.videoUrl&&<ScenePreview videoUrl={state.videoUrl} overlay={overlay}/>} {state.status==="queued"&&<p className="statusText">Submitting to {generationProvider} queue…</p>}{state.status==="generating"&&<p className="statusText">Generating on {generationProvider}… this page will update automatically.</p>}{state.status==="saving"&&<p className="statusText">Generation complete. Adding music + SFX and saving permanently…</p>}{state.status==="done"&&<p className={state.persisted?"savedText":"errorText"}>{state.persisted?"✓ Saved permanently to R2":`⚠ Showing ${generationProvider} copy; R2/Postgres storage is not ready`}</p>}{state.error&&<p className="errorText">{state.error}</p>}<div className="overlayEditor"><span className="eyebrow">TEXT OVERLAY — TIMED IN STUDIO</span><label>Overlay text<textarea value={overlay.text} onChange={(event)=>updateOverlay(index,{text:event.target.value})} placeholder="Optional caption or [start-end] timed captions"/></label><div className="overlayGrid"><label>Position<select value={overlay.position} onChange={(event)=>updateOverlay(index,{position:event.target.value as OverlayPosition})}><option value="top">Top</option><option value="middle">Middle</option><option value="bottom">Bottom</option></select></label><label>Start (sec)<input type="number" min="0" max={scene.duration} step="0.1" value={overlay.start} onChange={(event)=>updateOverlay(index,{start:Number(event.target.value)})}/></label><label>End (sec)<input type="number" min="0" max={scene.duration} step="0.1" value={overlay.end} onChange={(event)=>updateOverlay(index,{end:Number(event.target.value)})}/></label></div>{timed.length>1&&<p className="statusText">Timed lines preview individually. Bracket timing is never shown in the video.</p>}{overlay.text.includes("💬")&&<p className="statusText">💬 lines render as floating phone-message bubbles in preview and final video.</p>}</div><button disabled={["queued","generating","saving"].includes(state.status)} onClick={()=>generateScene(index)}>{state.status==="queued"?"Submitting…":state.status==="generating"?"Generating…":state.status==="saving"?"Saving…":state.status==="done"?"Regenerate Scene":"Generate Scene"}</button></article>;})}</div><section className="finalBuilder"><span className="eyebrow">EPISODE AUDIO</span><h2>Household Nonsense soundtrack</h2><p>Keep the approved visuals and regenerate only the music + sound effects for every scene using the current no-voices audio style.</p><button disabled={!allScenesReady||regeneratingSoundtracks} onClick={()=>void regenerateAllSoundtracks()}>{regeneratingSoundtracks?soundtrackProgress||"Regenerating Soundtracks…":"Regenerate All Soundtracks"}</button>{soundtrackProgress&&!regeneratingSoundtracks&&<p className="savedText">{soundtrackProgress}</p>}{soundtrackError&&<p className="errorText">{soundtrackError}</p>}</section><section className="finalBuilder"><span className="eyebrow">FINAL EPISODE</span><h2>Build the finished short</h2><p>Studio stitches the approved scenes in order, burns each caption only during its intended moment, keeps the music and sound effects, and saves one final vertical MP4 to R2.</p><button disabled={!allScenesReady||renderingFinal} onClick={()=>void buildFinalVideo()}>{renderingFinal?"Rendering Final Video…":"Build Final Video"}</button>{!allScenesReady&&<p className="statusText">Generate and permanently save all {episode.scenes.length} scenes to unlock final rendering.</p>}{finalError&&<p className="errorText">{finalError}</p>}{finalUrl&&<div className="finalResult"><p className="savedText">✓ Final episode saved permanently to R2 + Railway Postgres</p><video className="finalVideo" src={finalUrl} controls playsInline/><p className="statusText">Exports are H.264/AAC MP4 with mobile-compatible yuv420p video.</p><a className="downloadLink" href={finalDownloadUrl()} download={`${episode.id}.mp4`}>Download MP4</a><a className="downloadLink" href={finalUrl} target="_blank" rel="noreferrer">Open R2 Copy</a></div>}</section></div>;
+  const [joeUrl, setJoeUrl] = useState("");
+  const [dandaUrl, setDandaUrl] = useState("");
+  const [buddyUrl, setBuddyUrl] = useState("");
+  const [model, setModel] = useState("seedance-fast");
+  const [sceneStates, setSceneStates] = useState<Record<number, SceneState>>(
+    {},
+  );
+  const [overlays, setOverlays] = useState<Record<number, OverlayConfig>>({});
+  const [scenePrompts, setScenePrompts] = useState<Record<number, string>>({});
+  const [promptSaveStatuses, setPromptSaveStatuses] = useState<
+    Record<number, PromptSaveStatus>
+  >({});
+  const [revisionNotes, setRevisionNotes] = useState<Record<number, string>>(
+    {},
+  );
+  const [rewritingScenes, setRewritingScenes] = useState<
+    Record<number, boolean>
+  >({});
+  const [rewriteErrors, setRewriteErrors] = useState<Record<number, string>>(
+    {},
+  );
+  const [uploading, setUploading] = useState<CharacterKey | null>(null);
+  const [uploadError, setUploadError] = useState("");
+  const [storageError, setStorageError] = useState("");
+  const [balance, setBalance] = useState<number | null>(null);
+  const [balanceError, setBalanceError] = useState("");
+  const [projectLoaded, setProjectLoaded] = useState(false);
+  const [renderingFinal, setRenderingFinal] = useState(false);
+  const [finalUrl, setFinalUrl] = useState("");
+  const [finalError, setFinalError] = useState("");
+  const [regeneratingSoundtracks, setRegeneratingSoundtracks] = useState(false);
+  const [soundtrackProgress, setSoundtrackProgress] = useState("");
+  const [soundtrackError, setSoundtrackError] = useState("");
+  const overlayTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>(
+    {},
+  );
+  const promptTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>(
+    {},
+  );
+  const pollingRequests = useRef<Set<string>>(new Set());
+  const projectStorageKey = `relations:project:${episode.id}`;
+  const generationProvider = model.startsWith("higgsfield-")
+    ? "Higgsfield"
+    : "fal";
+  function defaultOverlay(index: number): OverlayConfig {
+    const scene = episode.scenes[index];
+    return {
+      text: scene.caption || "",
+      position: "bottom",
+      start: scene.captionStart ?? 0,
+      end: scene.captionEnd ?? scene.duration,
+    };
+  }
+  function normalizeOverlay(index: number, value: unknown): OverlayConfig {
+    const defaults = defaultOverlay(index);
+    if (!value || typeof value !== "object") return defaults;
+    const candidate = value as Partial<OverlayConfig>;
+    const position: OverlayPosition =
+      candidate.position === "top" ||
+      candidate.position === "middle" ||
+      candidate.position === "bottom"
+        ? candidate.position
+        : defaults.position;
+    const hasSavedText =
+      typeof candidate.text === "string" && candidate.text.trim().length > 0;
+    const text = hasSavedText ? (candidate.text as string) : defaults.text;
+    const start =
+      hasSavedText && Number.isFinite(Number(candidate.start))
+        ? Number(candidate.start)
+        : defaults.start;
+    const end =
+      hasSavedText && Number.isFinite(Number(candidate.end))
+        ? Number(candidate.end)
+        : defaults.end;
+    return { text, position, start, end };
+  }
+  async function loadBalance() {
+    try {
+      const response = await fetch("/api/fal-balance", { cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not load balance");
+      setBalance(typeof data.balance === "number" ? data.balance : null);
+      setBalanceError("");
+    } catch (error) {
+      setBalanceError(
+        error instanceof Error ? error.message : "Balance unavailable",
+      );
+    }
+  }
+  useEffect(() => {
+    let cancelled = false;
+    setJoeUrl(localStorage.getItem(JOE_STORAGE_KEY) || "");
+    setDandaUrl(localStorage.getItem(DANDA_STORAGE_KEY) || "");
+    setBuddyUrl(localStorage.getItem(BUDDY_STORAGE_KEY) || "");
+    const defaults = Object.fromEntries(
+      episode.scenes.map((_, index) => [index, defaultOverlay(index)]),
+    );
+    const promptDefaults = Object.fromEntries(
+      episode.scenes.map((scene, index) => [index, scene.prompt]),
+    );
+    let localStates: Record<number, SceneState> = {};
+    let localOverlays: Record<number, OverlayConfig> = defaults;
+    let localPrompts: Record<number, string> = promptDefaults;
+    let localFinalUrl = "";
+    try {
+      const saved = localStorage.getItem(projectStorageKey);
+      if (saved) {
+        const project = JSON.parse(saved) as {
+          sceneStates?: Record<number, SceneState>;
+          overlays?: Record<number, unknown>;
+          scenePrompts?: Record<number, string>;
+          finalUrl?: string;
+        };
+        localStates = project.sceneStates || {};
+        localOverlays = Object.fromEntries(
+          episode.scenes.map((_, index) => [
+            index,
+            normalizeOverlay(index, project.overlays?.[index]),
+          ]),
+        );
+        localPrompts = Object.fromEntries(
+          episode.scenes.map((scene, index) => [
+            index,
+            typeof project.scenePrompts?.[index] === "string" &&
+            project.scenePrompts[index].trim()
+              ? project.scenePrompts[index]
+              : scene.prompt,
+          ]),
+        );
+        localFinalUrl =
+          typeof project.finalUrl === "string" ? project.finalUrl : "";
+      }
+    } catch {}
+    setSceneStates(localStates);
+    setOverlays(localOverlays);
+    setScenePrompts(localPrompts);
+    setFinalUrl(localFinalUrl);
+    void (async () => {
+      try {
+        const response = await fetch(
+          `/api/project?episodeId=${encodeURIComponent(episode.id)}`,
+          { cache: "no-store" },
+        );
+        const data = await response.json();
+        if (!response.ok)
+          throw new Error(data.error || "Could not load Railway project data");
+        if (cancelled) return;
+        const dbStates: Record<number, SceneState> = {};
+        const dbOverlays: Record<number, OverlayConfig> = { ...defaults };
+        const dbPrompts: Record<number, string> = {};
+        for (const row of (data.scenes || []) as DatabaseScene[]) {
+          const index = Number(row.scene_index);
+          if (
+            !Number.isInteger(index) ||
+            index < 0 ||
+            index >= episode.scenes.length
+          )
+            continue;
+          if (row.video_url)
+            dbStates[index] = {
+              status: "done",
+              videoUrl: row.video_url,
+              requestId: row.request_id || undefined,
+              persisted: Boolean(row.persisted),
+            };
+          const fallback = defaults[index];
+          dbOverlays[index] = normalizeOverlay(index, {
+            text: row.overlay_text ?? fallback.text,
+            position: row.overlay_position ?? fallback.position,
+            start: row.overlay_start ?? fallback.start,
+            end: row.overlay_end ?? fallback.end,
+          });
+          if (typeof row.scene_prompt === "string" && row.scene_prompt.trim())
+            dbPrompts[index] = row.scene_prompt;
+        }
+        setSceneStates((prev) => ({ ...prev, ...dbStates }));
+        setOverlays((prev) => ({ ...prev, ...dbOverlays }));
+        setScenePrompts((prev) => ({ ...prev, ...dbPrompts }));
+        setFinalUrl(typeof data.finalUrl === "string" ? data.finalUrl : "");
+        setStorageError("");
+      } catch (error) {
+        if (!cancelled)
+          setStorageError(
+            `${error instanceof Error ? error.message : "Railway project storage unavailable"} Local device cache is being used until Postgres is connected.`,
+          );
+      } finally {
+        if (!cancelled) setProjectLoaded(true);
+      }
+    })();
+    void loadBalance();
+    return () => {
+      cancelled = true;
+      Object.values(promptTimers.current).forEach(clearTimeout);
+    };
+  }, [episode.id, episode.scenes, projectStorageKey]);
+  useEffect(() => {
+    if (!projectLoaded) return;
+    localStorage.setItem(
+      projectStorageKey,
+      JSON.stringify({ sceneStates, overlays, scenePrompts, finalUrl }),
+    );
+  }, [
+    sceneStates,
+    overlays,
+    scenePrompts,
+    finalUrl,
+    projectLoaded,
+    projectStorageKey,
+  ]);
+  useEffect(() => {
+    if (!projectLoaded) return;
+    for (const [key, state] of Object.entries(sceneStates)) {
+      if (state.status !== "queued" && state.status !== "generating") continue;
+      const index = Number(key);
+      if (!state.requestId) {
+        setSceneStates((prev) => ({
+          ...prev,
+          [index]: { ...prev[index], status: "idle" },
+        }));
+        continue;
+      }
+      if (pollingRequests.current.has(state.requestId)) continue;
+      const requestId = state.requestId;
+      pollingRequests.current.add(requestId);
+      void pollForResult(index, requestId, model)
+        .catch((error) =>
+          setSceneStates((prev) => ({
+            ...prev,
+            [index]: {
+              ...prev[index],
+              status: "error",
+              requestId,
+              error:
+                error instanceof Error
+                  ? error.message
+                  : "Could not resume generation",
+            },
+          })),
+        )
+        .finally(() => pollingRequests.current.delete(requestId));
+    }
+  }, [projectLoaded, sceneStates, model]);
+  function persistReference(character: CharacterKey, url: string) {
+    if (character === "joe") {
+      setJoeUrl(url);
+      if (url) localStorage.setItem(JOE_STORAGE_KEY, url);
+      else localStorage.removeItem(JOE_STORAGE_KEY);
+    } else if (character === "danda") {
+      setDandaUrl(url);
+      if (url) localStorage.setItem(DANDA_STORAGE_KEY, url);
+      else localStorage.removeItem(DANDA_STORAGE_KEY);
+    } else {
+      setBuddyUrl(url);
+      if (url) localStorage.setItem(BUDDY_STORAGE_KEY, url);
+      else localStorage.removeItem(BUDDY_STORAGE_KEY);
+    }
+  }
+  async function uploadReference(character: CharacterKey, file?: File) {
+    if (!file) return;
+    setUploading(character);
+    setUploadError("");
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await fetch("/api/upload-reference", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Upload failed");
+      if (!data.url) throw new Error("Upload completed without a file URL");
+      persistReference(character, data.url);
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : "Upload failed");
+    } finally {
+      setUploading(null);
+    }
+  }
+  async function saveGeneratedVideo(
+    index: number,
+    requestId: string,
+    sourceUrl: string,
+  ) {
+    setSceneStates((prev) => ({
+      ...prev,
+      [index]: {
+        ...prev[index],
+        status: "saving",
+        requestId,
+        videoUrl: sourceUrl,
+      },
+    }));
+    const response = await fetch("/api/persist-video", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sourceUrl,
+        episodeId: episode.id,
+        sceneIndex: index,
+        requestId,
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      setStorageError(data.error || "Permanent storage is not configured.");
+      setSceneStates((prev) => ({
+        ...prev,
+        [index]: {
+          status: "done",
+          videoUrl: sourceUrl,
+          requestId,
+          persisted: false,
+        },
+      }));
+      return;
+    }
+    setStorageError("");
+    setSceneStates((prev) => ({
+      ...prev,
+      [index]: {
+        status: "done",
+        videoUrl: data.url,
+        requestId,
+        persisted: true,
+      },
+    }));
+  }
+  async function pollForResult(
+    index: number,
+    requestId: string,
+    selectedModel: string,
+  ) {
+    for (let attempt = 0; attempt < 180; attempt += 1) {
+      await sleep(3000);
+      const response = await fetch(
+        `/api/generate-video?requestId=${encodeURIComponent(requestId)}&model=${encodeURIComponent(selectedModel)}`,
+        { cache: "no-store" },
+      );
+      const data = await response.json();
+      if (!response.ok)
+        throw new Error(data.error || "Could not check generation status");
+      if (data.status === "COMPLETED" && data.videoUrl) {
+        await saveGeneratedVideo(index, requestId, data.videoUrl);
+        void loadBalance();
+        return;
+      }
+      setSceneStates((prev) => ({
+        ...prev,
+        [index]: { ...prev[index], status: "generating", requestId },
+      }));
+    }
+    throw new Error(
+      "Generation is still running. Try Generate Scene again in a moment to start a new job.",
+    );
+  }
+  function clearSavedFinal() {
+    setFinalUrl("");
+    setFinalError("");
+    void fetch("/api/project", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "clear-final", episodeId: episode.id }),
+    }).catch(() => undefined);
+  }
+  async function generateScene(index: number) {
+    const scene = episode.scenes[index];
+    const prompt = (scenePrompts[index] || scene.prompt).trim();
+    if (prompt.length < 10) {
+      setSceneStates((prev) => ({
+        ...prev,
+        [index]: {
+          ...prev[index],
+          status: "error",
+          error: "Add a clear scene instruction before generating.",
+        },
+      }));
+      return;
+    }
+    const explicitKeys = (scene.characters || []).filter(
+      (key): key is CharacterKey =>
+        key === "joe" || key === "danda" || key === "buddy",
+    );
+    const characterKeys: CharacterKey[] = explicitKeys.length
+      ? explicitKeys
+      : ["joe", "danda"];
+    const referenceUrls: Record<CharacterKey, string> = {
+      joe: joeUrl,
+      danda: dandaUrl,
+      buddy: buddyUrl,
+    };
+    const missing = characterKeys.filter((key) => !referenceUrls[key].trim());
+    if (missing.length) {
+      setSceneStates((prev) => ({
+        ...prev,
+        [index]: {
+          ...prev[index],
+          status: "error",
+          error: `Upload the approved cartoon reference for ${missing.map((key) => (key === "joe" ? "Joe" : key === "danda" ? "Danda" : "Buddy")).join(" and ")} before generating this scene.`,
+        },
+      }));
+      return;
+    }
+    const imageUrls = characterKeys.map((key) => referenceUrls[key].trim());
+    const referenceMap = characterKeys
+      .map(
+        (key, position) =>
+          `@Image${position + 1} is ${key === "joe" ? "Joe" : key === "danda" ? "Danda" : "Buddy"}.`,
+      )
+      .join(" ");
+    const selectedModel = model;
+    clearSavedFinal();
+    setSceneStates((prev) => ({
+      ...prev,
+      [index]: { ...prev[index], status: "queued", error: undefined },
+    }));
+    try {
+      const response = await fetch("/api/generate-video", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: selectedModel,
+          duration: scene.duration,
+          imageUrls,
+          characterKeys,
+          prompt: `Use only the approved recurring cartoon character assets required for this scene. ${referenceMap} Preserve the referenced character faces, hairstyles, clothing identity and overall 2D cartoon design. Do not introduce a referenced character who is not listed for this scene. CHARACTER PROPORTIONS ARE LOCKED: Joe has an average, slightly stocky everyday-dad build. Danda is only moderately shorter than Joe, like a normal adult couple with a modest height difference. Both are normally proportioned adults. STYLE IS LOCKED: simple flat 2D cartoon comedy with clean bold outlines, exaggerated facial expressions, physical reactions, playful visual timing and readable uncluttered backgrounds. Use visual pantomime and held facial poses. All soundtrack and text overlays are added later in Studio. Vertical 9:16 relationship-comedy short. Scene action: ${prompt}`,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Generation failed");
+      if (!data.requestId)
+        throw new Error(
+          "The selected video provider did not return a request ID",
+        );
+      setSceneStates((prev) => ({
+        ...prev,
+        [index]: {
+          ...prev[index],
+          status: "generating",
+          requestId: data.requestId,
+          error: undefined,
+        },
+      }));
+      await pollForResult(index, data.requestId, selectedModel);
+    } catch (error) {
+      setSceneStates((prev) => ({
+        ...prev,
+        [index]: {
+          ...prev[index],
+          status: "error",
+          error: error instanceof Error ? error.message : "Generation failed",
+        },
+      }));
+      void loadBalance();
+    }
+  }
+  async function regenerateAllSoundtracks() {
+    if (regeneratingSoundtracks) return;
+    const ready = episode.scenes
+      .map((scene, index) => ({ scene, index, state: sceneStates[index] }))
+      .filter(
+        ({ state }) => state?.status === "done" && Boolean(state.videoUrl),
+      );
+    if (ready.length !== episode.scenes.length) {
+      setSoundtrackError(
+        "All scenes must be generated before regenerating the episode soundtrack.",
+      );
+      return;
+    }
+    setRegeneratingSoundtracks(true);
+    setSoundtrackError("");
+    clearSavedFinal();
+    try {
+      for (let position = 0; position < ready.length; position += 1) {
+        const { scene, index, state } = ready[position];
+        setSoundtrackProgress(
+          `Regenerating soundtrack ${position + 1} of ${ready.length}…`,
+        );
+        const response = await fetch("/api/generate-soundtrack", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            videoUrl: state.videoUrl,
+            episodeId: episode.id,
+            sceneIndex: index,
+            duration: scene.duration,
+            requestId: state.requestId || crypto.randomUUID(),
+          }),
+        });
+        const data = await response.json();
+        if (!response.ok)
+          throw new Error(
+            data.error || `Could not regenerate Scene ${index + 1} soundtrack.`,
+          );
+        if (!data.url)
+          throw new Error(
+            `Scene ${index + 1} soundtrack completed without a saved URL.`,
+          );
+        setSceneStates((prev) => ({
+          ...prev,
+          [index]: {
+            ...prev[index],
+            status: "done",
+            videoUrl: data.url,
+            persisted: true,
+          },
+        }));
+      }
+      setSoundtrackProgress(
+        `✓ Regenerated all ${ready.length} soundtracks with the current Household Nonsense audio style.`,
+      );
+      void loadBalance();
+    } catch (error) {
+      setSoundtrackError(
+        error instanceof Error
+          ? error.message
+          : "Could not regenerate all soundtracks.",
+      );
+      setSoundtrackProgress("");
+    } finally {
+      setRegeneratingSoundtracks(false);
+    }
+  }
+  function updateOverlay(index: number, patch: Partial<OverlayConfig>) {
+    const current = normalizeOverlay(index, overlays[index]);
+    const next = { ...current, ...patch };
+    setOverlays((prev) => ({ ...prev, [index]: next }));
+    clearSavedFinal();
+    if (overlayTimers.current[index])
+      clearTimeout(overlayTimers.current[index]);
+    overlayTimers.current[index] = setTimeout(() => {
+      void fetch("/api/project", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          episodeId: episode.id,
+          sceneIndex: index,
+          ...next,
+        }),
+      })
+        .then(async (response) => {
+          if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            throw new Error(
+              data.error || "Could not save overlay to Railway Postgres",
+            );
+          }
+          setStorageError("");
+        })
+        .catch((error) =>
+          setStorageError(
+            error instanceof Error
+              ? error.message
+              : "Could not save overlay to Railway Postgres",
+          ),
+        );
+    }, 500);
+  }
+  function updateScenePrompt(index: number, prompt: string) {
+    setScenePrompts((prev) => ({ ...prev, [index]: prompt }));
+    setPromptSaveStatuses((prev) => ({ ...prev, [index]: "saving" }));
+    clearSavedFinal();
+    if (promptTimers.current[index]) clearTimeout(promptTimers.current[index]);
+    promptTimers.current[index] = setTimeout(() => {
+      void fetch("/api/project", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "save-scene-prompt",
+          episodeId: episode.id,
+          sceneIndex: index,
+          prompt,
+        }),
+      })
+        .then(async (response) => {
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok)
+            throw new Error(data.error || "Could not save scene instruction");
+          setPromptSaveStatuses((prev) => ({ ...prev, [index]: "saved" }));
+          setStorageError("");
+        })
+        .catch((error) => {
+          setPromptSaveStatuses((prev) => ({ ...prev, [index]: "error" }));
+          setStorageError(
+            error instanceof Error
+              ? error.message
+              : "Could not save scene instruction",
+          );
+        });
+    }, 700);
+  }
+  function resetScenePrompt(index: number) {
+    updateScenePrompt(index, episode.scenes[index].prompt);
+  }
+  async function rewriteScene(index: number) {
+    const revisionNote = (revisionNotes[index] || "").trim();
+    if (!revisionNote) {
+      setRewriteErrors((prev) => ({
+        ...prev,
+        [index]: "Tell the screenplay AI what needs to change.",
+      }));
+      return;
+    }
+    setRewritingScenes((prev) => ({ ...prev, [index]: true }));
+    setRewriteErrors((prev) => ({ ...prev, [index]: "" }));
+    try {
+      const promptFor = (position: number) =>
+        position >= 0 && position < episode.scenes.length
+          ? scenePrompts[position] || episode.scenes[position].prompt
+          : "";
+      const response = await fetch("/api/rewrite-scene", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          episodeTitle: episode.title,
+          sceneIndex: index,
+          totalScenes: episode.scenes.length,
+          currentPrompt: promptFor(index),
+          previousPrompt: promptFor(index - 1),
+          nextPrompt: promptFor(index + 1),
+          revisionNote,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok)
+        throw new Error(
+          data.error || "The screenplay AI could not revise this scene.",
+        );
+      if (typeof data.prompt !== "string" || data.prompt.trim().length < 10)
+        throw new Error(
+          "The screenplay AI returned an incomplete scene revision.",
+        );
+      updateScenePrompt(index, data.prompt);
+      setRevisionNotes((prev) => ({ ...prev, [index]: "" }));
+    } catch (error) {
+      setRewriteErrors((prev) => ({
+        ...prev,
+        [index]:
+          error instanceof Error
+            ? error.message
+            : "The screenplay AI could not revise this scene.",
+      }));
+    } finally {
+      setRewritingScenes((prev) => ({ ...prev, [index]: false }));
+    }
+  }
+  const allScenesReady = useMemo(
+    () =>
+      episode.scenes.every(
+        (_, index) =>
+          sceneStates[index]?.status === "done" &&
+          Boolean(sceneStates[index]?.videoUrl) &&
+          sceneStates[index]?.persisted === true,
+      ),
+    [episode.scenes, sceneStates],
+  );
+  async function buildFinalVideo() {
+    if (!allScenesReady) {
+      setFinalError(
+        "Generate and permanently save every scene before building the final episode.",
+      );
+      return;
+    }
+    setRenderingFinal(true);
+    setFinalError("");
+    try {
+      const scenes = episode.scenes.map((_, index) => {
+        const overlay = normalizeOverlay(index, overlays[index]);
+        return {
+          videoUrl: sceneStates[index].videoUrl,
+          text: overlay.text,
+          position: overlay.position,
+          start: overlay.start,
+          end: overlay.end,
+        };
+      });
+      const response = await fetch("/api/render-episode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ episodeId: episode.id, scenes }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Final render failed");
+      setFinalUrl(data.url);
+    } catch (error) {
+      setFinalError(
+        error instanceof Error ? error.message : "Final render failed",
+      );
+    } finally {
+      setRenderingFinal(false);
+    }
+  }
+  function finalDownloadUrl() {
+    return `/api/download-video?url=${encodeURIComponent(finalUrl)}&filename=${encodeURIComponent(`${episode.id}.mp4`)}`;
+  }
+  function sceneDownloadUrl(index: number, videoUrl: string) {
+    return `/api/download-video?url=${encodeURIComponent(videoUrl)}&filename=${encodeURIComponent(`${episode.id}-scene-${index + 1}.mp4`)}`;
+  }
+  return (
+    <div className="workspace">
+      <div className="workspaceTop">
+        <div>
+          <a className="backLink" href="/">
+            ← Episode Library
+          </a>
+          <span className="eyebrow">JOE + DANDA</span>
+          <h1>{episode.title}</h1>
+          <p>{episode.hook}</p>
+        </div>
+        <div className="workspaceControls">
+          {generationProvider === "fal" ? (
+            <div
+              className="creditBalance"
+              onClick={() => void loadBalance()}
+              title="Tap to refresh fal balance"
+            >
+              <span>fal credits</span>
+              <b>
+                {balance === null
+                  ? balanceError
+                    ? "Unavailable"
+                    : "Loading…"
+                  : `$${balance.toFixed(2)}`}
+              </b>
+            </div>
+          ) : (
+            <div
+              className="creditBalance"
+              title="Generation is routed through the Higgsfield API"
+            >
+              <span>provider</span>
+              <b>Higgsfield API</b>
+            </div>
+          )}
+          <label>
+            Model
+            <select
+              value={model}
+              onChange={(event) => setModel(event.target.value)}
+            >
+              <option value="higgsfield-seedance-2.5">
+                Higgsfield · Seedance 2.5
+              </option>
+              <option value="seedance-fast">fal · Seedance 2 Fast</option>
+              <option value="seedance-standard">
+                fal · Seedance 2 Standard
+              </option>
+            </select>
+          </label>
+        </div>
+      </div>
+      <section className="referencePanel">
+        <div>
+          <span className="eyebrow">LOCKED CHARACTER LIBRARY</span>
+          <h2>Joe + Danda + Buddy references</h2>
+          <p>
+            Use the final cartoon character images here. Once uploaded, they are
+            remembered and reused automatically across every episode on this
+            device.
+          </p>
+          <p className="statusText">
+            Silent-cartoon format is locked: Studio adds soundtrack and
+            precisely timed overlays after generation.
+          </p>
+          <p className="statusText">
+            Production storage: Railway Postgres saves project data and
+            Cloudflare R2 saves video files.
+          </p>
+          {uploadError && <p className="errorText">{uploadError}</p>}
+          {storageError && <p className="errorText">{storageError}</p>}
+        </div>
+        <div className="referenceInputs">
+          <div className="characterRef">
+            <label>Joe cartoon reference {joeUrl && "✓ Locked"}</label>
+            {joeUrl && (
+              <img
+                className="referenceThumb"
+                src={joeUrl}
+                alt="Joe cartoon reference"
+              />
+            )}
+            <label className="uploadButton">
+              {uploading === "joe"
+                ? "Uploading Joe…"
+                : joeUrl
+                  ? "Replace Joe Cartoon"
+                  : "Upload Joe Cartoon"}
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                disabled={uploading !== null}
+                onChange={(event) =>
+                  uploadReference("joe", event.target.files?.[0])
+                }
+              />
+            </label>
+            <input
+              value={joeUrl}
+              onChange={(event) => persistReference("joe", event.target.value)}
+              placeholder="Or paste the approved Joe cartoon URL"
+            />
+          </div>
+          <div className="characterRef">
+            <label>Danda cartoon reference {dandaUrl && "✓ Locked"}</label>
+            {dandaUrl && (
+              <img
+                className="referenceThumb"
+                src={dandaUrl}
+                alt="Danda cartoon reference"
+              />
+            )}
+            <label className="uploadButton">
+              {uploading === "danda"
+                ? "Uploading Danda…"
+                : dandaUrl
+                  ? "Replace Danda Cartoon"
+                  : "Upload Danda Cartoon"}
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                disabled={uploading !== null}
+                onChange={(event) =>
+                  uploadReference("danda", event.target.files?.[0])
+                }
+              />
+            </label>
+            <input
+              value={dandaUrl}
+              onChange={(event) =>
+                persistReference("danda", event.target.value)
+              }
+              placeholder="Or paste the approved Danda cartoon URL"
+            />
+          </div>
+          <div className="characterRef">
+            <label>Buddy cartoon reference {buddyUrl && "✓ Locked"}</label>
+            {buddyUrl && (
+              <img
+                className="referenceThumb"
+                src={buddyUrl}
+                alt="Buddy cartoon reference"
+              />
+            )}
+            <label className="uploadButton">
+              {uploading === "buddy"
+                ? "Uploading Buddy…"
+                : buddyUrl
+                  ? "Replace Buddy Cartoon"
+                  : "Upload Buddy Cartoon"}
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                disabled={uploading !== null}
+                onChange={(event) =>
+                  uploadReference("buddy", event.target.files?.[0])
+                }
+              />
+            </label>
+            <input
+              value={buddyUrl}
+              onChange={(event) =>
+                persistReference("buddy", event.target.value)
+              }
+              placeholder="Or paste the approved Buddy cartoon URL"
+            />
+          </div>
+        </div>
+      </section>
+      <div className="sceneList">
+        {episode.scenes.map((scene, index) => {
+          const state = sceneStates[index] || { status: "idle" };
+          const overlay = normalizeOverlay(index, overlays[index]);
+          const timed = parseTimedCaptions(
+            overlay.text,
+            overlay.start,
+            overlay.end,
+          );
+          const currentPrompt = scenePrompts[index] ?? scene.prompt;
+          const promptStatus = promptSaveStatuses[index] || "idle";
+          return (
+            <article className="sceneCard" key={index}>
+              <div className="sceneMeta">
+                <span>SCENE {index + 1}</span>
+                <b>{scene.duration}s</b>
+              </div>
+              <div className={sceneStyles.sceneScriptEditor}>
+                <div className={sceneStyles.sceneScriptHeading}>
+                  <span className="eyebrow">
+                    SCENE INSTRUCTION — EDIT BEFORE GENERATING
+                  </span>
+                  <button
+                    type="button"
+                    className={sceneStyles.textButton}
+                    disabled={currentPrompt === scene.prompt}
+                    onClick={() => resetScenePrompt(index)}
+                  >
+                    Reset original
+                  </button>
+                </div>
+                <textarea
+                  value={currentPrompt}
+                  onChange={(event) =>
+                    updateScenePrompt(index, event.target.value)
+                  }
+                  aria-label={`Scene ${index + 1} generation instruction`}
+                />
+                <p
+                  className={
+                    promptStatus === "error"
+                      ? "errorText"
+                      : promptStatus === "saved"
+                        ? "savedText"
+                        : "statusText"
+                  }
+                >
+                  {promptStatus === "saving"
+                    ? "Saving scene instruction…"
+                    : promptStatus === "saved"
+                      ? "✓ Scene instruction saved"
+                      : promptStatus === "error"
+                        ? "Scene instruction could not be saved. The local copy is still available."
+                        : "Edit only this scene, then regenerate it without changing the others."}
+                </p>
+                <div className={sceneStyles.aiRevision}>
+                  <label>
+                    Ask the screenplay AI to fix this scene
+                    <input
+                      value={revisionNotes[index] || ""}
+                      onChange={(event) =>
+                        setRevisionNotes((prev) => ({
+                          ...prev,
+                          [index]: event.target.value,
+                        }))
+                      }
+                      placeholder="Example: Keep the light on. Danda walks directly from the doorway to the bed and never touches the switch."
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    disabled={
+                      Boolean(rewritingScenes[index]) ||
+                      !(revisionNotes[index] || "").trim()
+                    }
+                    onClick={() => void rewriteScene(index)}
+                  >
+                    {rewritingScenes[index]
+                      ? "Rewriting Scene…"
+                      : "Rewrite Only This Scene with AI"}
+                  </button>
+                  {rewriteErrors[index] && (
+                    <p className="errorText">{rewriteErrors[index]}</p>
+                  )}
+                </div>
+              </div>
+              {state.videoUrl && (
+                <ScenePreview videoUrl={state.videoUrl} overlay={overlay} />
+              )}{" "}
+              {state.status === "queued" && (
+                <p className="statusText">
+                  Submitting this scene to {generationProvider}… Your previous
+                  version remains available until the replacement succeeds.
+                </p>
+              )}
+              {state.status === "generating" && (
+                <p className="statusText">
+                  Generating this scene on {generationProvider}… Your previous
+                  version remains available until the replacement succeeds.
+                </p>
+              )}
+              {state.status === "saving" && (
+                <p className="statusText">
+                  Generation complete. Adding music + SFX and saving the
+                  replacement…
+                </p>
+              )}
+              {state.status === "done" && (
+                <p className={state.persisted ? "savedText" : "errorText"}>
+                  {state.persisted
+                    ? "✓ Saved permanently to R2"
+                    : `⚠ Showing ${generationProvider} copy; R2/Postgres storage is not ready`}
+                </p>
+              )}
+              {state.error && <p className="errorText">{state.error}</p>}
+              <div className="overlayEditor">
+                <span className="eyebrow">TEXT OVERLAY — TIMED IN STUDIO</span>
+                <label>
+                  Overlay text
+                  <textarea
+                    value={overlay.text}
+                    onChange={(event) =>
+                      updateOverlay(index, { text: event.target.value })
+                    }
+                    placeholder="Optional caption or [start-end] timed captions"
+                  />
+                </label>
+                <div className="overlayGrid">
+                  <label>
+                    Position
+                    <select
+                      value={overlay.position}
+                      onChange={(event) =>
+                        updateOverlay(index, {
+                          position: event.target.value as OverlayPosition,
+                        })
+                      }
+                    >
+                      <option value="top">Top</option>
+                      <option value="middle">Middle</option>
+                      <option value="bottom">Bottom</option>
+                    </select>
+                  </label>
+                  <label>
+                    Start (sec)
+                    <input
+                      type="number"
+                      min="0"
+                      max={scene.duration}
+                      step="0.1"
+                      value={overlay.start}
+                      onChange={(event) =>
+                        updateOverlay(index, {
+                          start: Number(event.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    End (sec)
+                    <input
+                      type="number"
+                      min="0"
+                      max={scene.duration}
+                      step="0.1"
+                      value={overlay.end}
+                      onChange={(event) =>
+                        updateOverlay(index, {
+                          end: Number(event.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+                {timed.length > 1 && (
+                  <p className="statusText">
+                    Timed lines preview individually. Bracket timing is never
+                    shown in the video.
+                  </p>
+                )}
+                {overlay.text.includes("💬") && (
+                  <p className="statusText">
+                    💬 lines render as floating phone-message bubbles in preview
+                    and final video.
+                  </p>
+                )}
+              </div>
+              <div className={sceneStyles.sceneActions}>
+                <button
+                  disabled={
+                    ["queued", "generating", "saving"].includes(state.status) ||
+                    currentPrompt.trim().length < 10
+                  }
+                  onClick={() => generateScene(index)}
+                >
+                  {state.status === "queued"
+                    ? "Submitting…"
+                    : state.status === "generating"
+                      ? "Generating…"
+                      : state.status === "saving"
+                        ? "Saving…"
+                        : state.videoUrl
+                          ? "Regenerate Only This Scene"
+                          : "Generate This Scene"}
+                </button>
+                {state.videoUrl && (
+                  <a
+                    className="downloadLink"
+                    href={sceneDownloadUrl(index, state.videoUrl)}
+                    download={`${episode.id}-scene-${index + 1}.mp4`}
+                  >
+                    Download Scene {index + 1}
+                  </a>
+                )}
+              </div>
+            </article>
+          );
+        })}
+      </div>
+      <section className="finalBuilder">
+        <span className="eyebrow">EPISODE AUDIO</span>
+        <h2>Household Nonsense soundtrack</h2>
+        <p>
+          Keep the approved visuals and regenerate only the music + sound
+          effects for every scene using the current no-voices audio style.
+        </p>
+        <button
+          disabled={!allScenesReady || regeneratingSoundtracks}
+          onClick={() => void regenerateAllSoundtracks()}
+        >
+          {regeneratingSoundtracks
+            ? soundtrackProgress || "Regenerating Soundtracks…"
+            : "Regenerate All Soundtracks"}
+        </button>
+        {soundtrackProgress && !regeneratingSoundtracks && (
+          <p className="savedText">{soundtrackProgress}</p>
+        )}
+        {soundtrackError && <p className="errorText">{soundtrackError}</p>}
+      </section>
+      <section className="finalBuilder">
+        <span className="eyebrow">FINAL EPISODE</span>
+        <h2>Build the finished short</h2>
+        <p>
+          Studio stitches the approved scenes in order, burns each caption only
+          during its intended moment, keeps the music and sound effects, and
+          saves one final vertical MP4 to R2.
+        </p>
+        <button
+          disabled={!allScenesReady || renderingFinal}
+          onClick={() => void buildFinalVideo()}
+        >
+          {renderingFinal ? "Rendering Final Video…" : "Build Final Video"}
+        </button>
+        {!allScenesReady && (
+          <p className="statusText">
+            Generate and permanently save all {episode.scenes.length} scenes to
+            unlock final rendering.
+          </p>
+        )}
+        {finalError && <p className="errorText">{finalError}</p>}
+        {finalUrl && (
+          <div className="finalResult">
+            <p className="savedText">
+              ✓ Final episode saved permanently to R2 + Railway Postgres
+            </p>
+            <video className="finalVideo" src={finalUrl} controls playsInline />
+            <p className="statusText">
+              Exports are H.264/AAC MP4 with mobile-compatible yuv420p video.
+            </p>
+            <a
+              className="downloadLink"
+              href={finalDownloadUrl()}
+              download={`${episode.id}.mp4`}
+            >
+              Download MP4
+            </a>
+            <a
+              className="downloadLink"
+              href={finalUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Open R2 Copy
+            </a>
+          </div>
+        )}
+      </section>
+    </div>
+  );
 }

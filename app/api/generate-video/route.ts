@@ -36,17 +36,27 @@ The only action in this shot is: Danda walks directly to the bed, climbs into be
 The wall control never moves. The room brightness never changes. Do not depict Danda switching anything on or off. Do not depict a finger near the wall control. Do not make the wall control the focal action of the shot.
 Camera: stable medium-wide view angled toward the bed so Danda's path is FROM the doorway TO the bed. The doorway and wall plate stay behind her as she moves farther away from them.`;
 
-
-
-type ReferenceCharacterKey = "joe" | "danda";
+type ReferenceCharacterKey = "joe" | "danda" | "buddy";
 
 function characterReferenceLock(keys: ReferenceCharacterKey[]) {
-  const mapping = keys.map((key, index) => `@Image${index + 1} is ${key === "joe" ? "Joe" : "Danda"}.`).join(" ");
-  const descriptions = keys.map((key) => key === "joe"
-    ? "Joe is an early-40s man with short dark hair, a full neatly trimmed dark beard, and an average slightly stocky everyday-dad build. Joe must never become muscular, athletic, broad-chested or physically defined."
-    : "Danda is an early-40s woman with long dark brown hair with warm highlights and normal adult proportions. When Joe is also present, Danda is only moderately shorter than Joe; standing together, the top of her head is approximately around Joe's eye or eyebrow level. Never make her tiny, miniature, child-sized or disproportionately small."
-  ).join("\n");
-  const allowed = keys.map((key) => key === "joe" ? "Joe" : "Danda").join(" and ");
+  const mapping = keys
+    .map(
+      (key, index) =>
+        `@Image${index + 1} is ${key === "joe" ? "Joe" : key === "danda" ? "Danda" : "Buddy"}.`,
+    )
+    .join(" ");
+  const descriptions = keys
+    .map((key) =>
+      key === "joe"
+        ? "Joe is an early-40s man with short dark hair, a full neatly trimmed dark beard, and an average slightly stocky everyday-dad build. Joe must never become muscular, athletic, broad-chested or physically defined."
+        : key === "danda"
+          ? "Danda is an early-40s woman with long dark brown hair with warm highlights and normal adult proportions. When Joe is also present, Danda is only moderately shorter than Joe; standing together, the top of her head is approximately around Joe's eye or eyebrow level. Never make her tiny, miniature, child-sized or disproportionately small."
+          : "Buddy is a small black-and-white Maltese-like dog. Preserve his small size, black-and-white coat pattern, face, proportions, and cartoon design. Never replace him with a person, a large dog, or a different breed.",
+    )
+    .join("\n");
+  const allowed = keys
+    .map((key) => (key === "joe" ? "Joe" : key === "danda" ? "Danda" : "Buddy"))
+    .join(" and ");
   return `REFERENCE MAP — EXACTLY FOLLOW THIS FOR THE CURRENT SCENE:
 ${mapping}
 Only ${allowed} may appear from the recurring cast in this scene. Do not add the other recurring character just because they exist elsewhere in the series. Do not duplicate, clone, mirror, or create an extra copy of any supplied character.
@@ -64,7 +74,8 @@ function falEndpointFor(model: string) {
 }
 
 function higgsfieldCredentials() {
-  const singleKey = process.env.HF_API_KEY?.trim() || process.env.HF_CREDENTIALS?.trim();
+  const singleKey =
+    process.env.HF_API_KEY?.trim() || process.env.HF_CREDENTIALS?.trim();
   if (singleKey) return singleKey;
   const keyId = process.env.HF_API_KEY_ID?.trim();
   const keySecret = process.env.HF_API_KEY_SECRET?.trim();
@@ -74,81 +85,201 @@ function higgsfieldCredentials() {
 function errorPayload(error: unknown, fallback: string) {
   let raw = fallback;
   if (error && typeof error === "object") {
-    const maybe = error as { message?: string; body?: unknown; response?: { data?: unknown } };
+    const maybe = error as {
+      message?: string;
+      body?: unknown;
+      response?: { data?: unknown };
+    };
     const details = maybe.body ?? maybe.response?.data;
-    if (details) { try { raw = `${maybe.message || fallback}: ${JSON.stringify(details)}`; } catch { raw = maybe.message || fallback; } }
-    else if (maybe.message) raw = maybe.message;
+    if (details) {
+      try {
+        raw = `${maybe.message || fallback}: ${JSON.stringify(details)}`;
+      } catch {
+        raw = maybe.message || fallback;
+      }
+    } else if (maybe.message) raw = maybe.message;
   }
   const normalized = raw.toLowerCase();
-  const realPersonBlocked = normalized.includes("likenesses of real people") || normalized.includes("likeness of real people") || normalized.includes("private information") || normalized.includes("real people");
-  if (realPersonBlocked) return { error: "The video provider blocked this reference because it appears to contain a real person. Use the approved cartoon Joe and Danda character images instead of source photos.", code: "REAL_PERSON_REFERENCE_BLOCKED", status: 422 };
+  const realPersonBlocked =
+    normalized.includes("likenesses of real people") ||
+    normalized.includes("likeness of real people") ||
+    normalized.includes("private information") ||
+    normalized.includes("real people");
+  if (realPersonBlocked)
+    return {
+      error:
+        "The video provider blocked this reference because it appears to contain a real person. Use the approved cartoon Joe and Danda character images instead of source photos.",
+      code: "REAL_PERSON_REFERENCE_BLOCKED",
+      status: 422,
+    };
   return { error: raw, code: "GENERATION_ERROR", status: 500 };
 }
 
 async function parseHiggsfieldError(response: Response) {
-  const data = await response.json().catch(() => null) as { detail?: unknown; error?: unknown; message?: string } | null;
+  const data = (await response.json().catch(() => null)) as {
+    detail?: unknown;
+    error?: unknown;
+    message?: string;
+  } | null;
   if (!data) return `Higgsfield request failed with HTTP ${response.status}.`;
   const detail = data.detail ?? data.error ?? data.message;
   if (typeof detail === "string") return detail;
-  try { return JSON.stringify(detail ?? data); } catch { return `Higgsfield request failed with HTTP ${response.status}.`; }
+  try {
+    return JSON.stringify(detail ?? data);
+  } catch {
+    return `Higgsfield request failed with HTTP ${response.status}.`;
+  }
 }
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { prompt, imageUrls = [], characterKeys = [], duration = 5, model = "seedance-fast" } = body;
-    if (!prompt || typeof prompt !== "string") return NextResponse.json({ error: "A scene prompt is required." }, { status: 400 });
-    if (!Array.isArray(imageUrls) || imageUrls.length < 1) return NextResponse.json({ error: "Upload the approved cartoon reference required for this scene before generating." }, { status: 400 });
-    const requestedKeys = Array.isArray(characterKeys) ? characterKeys.filter((key: unknown): key is ReferenceCharacterKey => key === "joe" || key === "danda") : [];
-    const safeCharacterKeys: ReferenceCharacterKey[] = requestedKeys.length ? requestedKeys.slice(0, imageUrls.length) : imageUrls.length === 1 ? ["joe"] : ["joe", "danda"];
-    if (safeCharacterKeys.length !== imageUrls.length) return NextResponse.json({ error: "Character reference mapping does not match the supplied images." }, { status: 400 });
+    const {
+      prompt,
+      imageUrls = [],
+      characterKeys = [],
+      duration = 5,
+      model = "seedance-fast",
+    } = body;
+    if (!prompt || typeof prompt !== "string")
+      return NextResponse.json(
+        { error: "A scene prompt is required." },
+        { status: 400 },
+      );
+    if (!Array.isArray(imageUrls) || imageUrls.length < 1)
+      return NextResponse.json(
+        {
+          error:
+            "Upload the approved cartoon reference required for this scene before generating.",
+        },
+        { status: 400 },
+      );
+    const requestedKeys = Array.isArray(characterKeys)
+      ? characterKeys.filter(
+          (key: unknown): key is ReferenceCharacterKey =>
+            key === "joe" || key === "danda" || key === "buddy",
+        )
+      : [];
+    const safeCharacterKeys: ReferenceCharacterKey[] = requestedKeys.length
+      ? requestedKeys.slice(0, imageUrls.length)
+      : imageUrls.length === 1
+        ? ["joe"]
+        : ["joe", "danda"];
+    if (safeCharacterKeys.length !== imageUrls.length)
+      return NextResponse.json(
+        {
+          error:
+            "Character reference mapping does not match the supplied images.",
+        },
+        { status: 400 },
+      );
 
     const usingHiggsfield = isHiggsfieldModel(model);
-    if (usingHiggsfield && !higgsfieldCredentials()) return NextResponse.json({ error: "HF_API_KEY is not configured on the server." }, { status: 500 });
-    if (!usingHiggsfield && !process.env.FAL_KEY) return NextResponse.json({ error: "FAL_KEY is not configured on the server." }, { status: 500 });
+    if (usingHiggsfield && !higgsfieldCredentials())
+      return NextResponse.json(
+        { error: "HF_API_KEY is not configured on the server." },
+        { status: 500 },
+      );
+    if (!usingHiggsfield && !process.env.FAL_KEY)
+      return NextResponse.json(
+        { error: "FAL_KEY is not configured on the server." },
+        { status: 500 },
+      );
 
     const maxDuration = usingHiggsfield ? 30 : 15;
-    const safeDuration = Math.max(4, Math.min(maxDuration, Number(duration) || 5));
-    const isBedSleepScene = /\b(bed|bedroom|mattress|bedding|sleep|asleep|sleeping)\b/i.test(prompt);
+    const safeDuration = Math.max(
+      4,
+      Math.min(maxDuration, Number(duration) || 5),
+    );
+    const isBedSleepScene =
+      /\b(bed|bedroom|mattress|bedding|sleep|asleep|sleeping)\b/i.test(prompt);
     const bedSleepPrompt = isBedSleepScene ? `\n\n${BED_SLEEP_LOCK}` : "";
     const isLightPassScene = prompt.includes("LIGHT-SWITCH STATE LOCK");
-    const lightPassPrompt = isLightPassScene ? `\n\n${LIGHT_PASS_OVERRIDE}` : "";
+    const lightPassPrompt = isLightPassScene
+      ? `\n\n${LIGHT_PASS_OVERRIDE}`
+      : "";
     const lockedPrompt = `${LOCKED_VISUAL_DIRECTION}\n\n${characterReferenceLock(safeCharacterKeys)}${bedSleepPrompt}\n\nSCENE INSTRUCTIONS:\n${prompt}${lightPassPrompt}`;
     const isMusicalScene = prompt.includes("MUSICAL TIMING TARGET:");
 
     if (usingHiggsfield) {
-      const response = await fetch(`${HIGGSFIELD_BASE_URL}/${HIGGSFIELD_ENDPOINT}`, {
-        method: "POST",
-        headers: {
-          Authorization: `Key ${higgsfieldCredentials()}`,
-          "Content-Type": "application/json",
-          Accept: "application/json",
+      const response = await fetch(
+        `${HIGGSFIELD_BASE_URL}/${HIGGSFIELD_ENDPOINT}`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Key ${higgsfieldCredentials()}`,
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            prompt: lockedPrompt,
+            image_urls: imageUrls.slice(0, safeCharacterKeys.length),
+            duration: safeDuration,
+            resolution: "720p",
+            aspect_ratio: "9:16",
+            output_format: "mp4",
+            generate_audio: !isMusicalScene,
+          }),
+          cache: "no-store",
         },
-        body: JSON.stringify({
-          prompt: lockedPrompt,
-          image_urls: imageUrls.slice(0, safeCharacterKeys.length),
-          duration: safeDuration,
-          resolution: "720p",
-          aspect_ratio: "9:16",
-          output_format: "mp4",
-          generate_audio: !isMusicalScene,
-        }),
-        cache: "no-store",
+      );
+      if (!response.ok)
+        throw new Error(`Higgsfield: ${await parseHiggsfieldError(response)}`);
+      const submission = (await response.json()) as {
+        request_id?: string;
+        status?: string;
+        status_url?: string;
+      };
+      if (!submission.request_id)
+        throw new Error(
+          "Higgsfield accepted the request but did not return a request_id.",
+        );
+      await saveGenerationRequest({
+        requestId: submission.request_id,
+        model,
+        endpointId: HIGGSFIELD_ENDPOINT,
+        duration: safeDuration,
+      }).catch(() => undefined);
+      return NextResponse.json({
+        requestId: `hf:${submission.request_id}`,
+        model,
+        provider: "higgsfield",
+        status: submission.status || "queued",
+        musicalAudioDisabled: isMusicalScene,
       });
-      if (!response.ok) throw new Error(`Higgsfield: ${await parseHiggsfieldError(response)}`);
-      const submission = await response.json() as { request_id?: string; status?: string; status_url?: string };
-      if (!submission.request_id) throw new Error("Higgsfield accepted the request but did not return a request_id.");
-      await saveGenerationRequest({ requestId: submission.request_id, model, endpointId: HIGGSFIELD_ENDPOINT, duration: safeDuration }).catch(() => undefined);
-      return NextResponse.json({ requestId: `hf:${submission.request_id}`, model, provider: "higgsfield", status: submission.status || "queued", musicalAudioDisabled: isMusicalScene });
     }
 
     const endpoint = falEndpointFor(model);
-    const submission = await fal.queue.submit(endpoint, { input: { prompt: lockedPrompt, image_urls: imageUrls.slice(0, safeCharacterKeys.length), resolution: "720p", duration: String(safeDuration), aspect_ratio: "9:16", generate_audio: !isMusicalScene, bitrate_mode: "standard" } });
-    await saveGenerationRequest({ requestId: submission.request_id, model, endpointId: endpoint, duration: safeDuration }).catch(() => undefined);
-    return NextResponse.json({ requestId: submission.request_id, model, provider: "fal", status: "queued", musicalAudioDisabled: isMusicalScene });
+    const submission = await fal.queue.submit(endpoint, {
+      input: {
+        prompt: lockedPrompt,
+        image_urls: imageUrls.slice(0, safeCharacterKeys.length),
+        resolution: "720p",
+        duration: String(safeDuration),
+        aspect_ratio: "9:16",
+        generate_audio: !isMusicalScene,
+        bitrate_mode: "standard",
+      },
+    });
+    await saveGenerationRequest({
+      requestId: submission.request_id,
+      model,
+      endpointId: endpoint,
+      duration: safeDuration,
+    }).catch(() => undefined);
+    return NextResponse.json({
+      requestId: submission.request_id,
+      model,
+      provider: "fal",
+      status: "queued",
+      musicalAudioDisabled: isMusicalScene,
+    });
   } catch (error) {
     const payload = errorPayload(error, "Video generation failed.");
-    return NextResponse.json({ error: payload.error, code: payload.code }, { status: payload.status });
+    return NextResponse.json(
+      { error: payload.error, code: payload.code },
+      { status: payload.status },
+    );
   }
 }
 
@@ -157,41 +288,116 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const encodedRequestId = searchParams.get("requestId");
     const model = searchParams.get("model") || "seedance-fast";
-    if (!encodedRequestId) return NextResponse.json({ error: "requestId is required." }, { status: 400 });
+    if (!encodedRequestId)
+      return NextResponse.json(
+        { error: "requestId is required." },
+        { status: 400 },
+      );
 
-    const higgsfieldRequest = encodedRequestId.startsWith("hf:") || isHiggsfieldModel(model);
+    const higgsfieldRequest =
+      encodedRequestId.startsWith("hf:") || isHiggsfieldModel(model);
     if (higgsfieldRequest) {
       const credentials = higgsfieldCredentials();
-      if (!credentials) return NextResponse.json({ error: "HF_API_KEY is not configured on the server." }, { status: 500 });
+      if (!credentials)
+        return NextResponse.json(
+          { error: "HF_API_KEY is not configured on the server." },
+          { status: 500 },
+        );
       const requestId = encodedRequestId.replace(/^hf:/, "");
-      const response = await fetch(`${HIGGSFIELD_BASE_URL}/requests/${encodeURIComponent(requestId)}/status`, {
-        headers: { Authorization: `Key ${credentials}`, Accept: "application/json" },
-        cache: "no-store",
-      });
-      if (!response.ok) throw new Error(`Higgsfield: ${await parseHiggsfieldError(response)}`);
-      const data = await response.json() as { status?: string; video?: { url?: string }; error?: { message?: string } | string };
+      const response = await fetch(
+        `${HIGGSFIELD_BASE_URL}/requests/${encodeURIComponent(requestId)}/status`,
+        {
+          headers: {
+            Authorization: `Key ${credentials}`,
+            Accept: "application/json",
+          },
+          cache: "no-store",
+        },
+      );
+      if (!response.ok)
+        throw new Error(`Higgsfield: ${await parseHiggsfieldError(response)}`);
+      const data = (await response.json()) as {
+        status?: string;
+        video?: { url?: string };
+        error?: { message?: string } | string;
+      };
       const status = (data.status || "queued").toLowerCase();
       if (status === "completed") {
-        if (!data.video?.url) return NextResponse.json({ error: "Higgsfield completed generation but returned no video URL." }, { status: 502 });
-        return NextResponse.json({ requestId: encodedRequestId, provider: "higgsfield", status: "COMPLETED", videoUrl: data.video.url });
+        if (!data.video?.url)
+          return NextResponse.json(
+            {
+              error:
+                "Higgsfield completed generation but returned no video URL.",
+            },
+            { status: 502 },
+          );
+        return NextResponse.json({
+          requestId: encodedRequestId,
+          provider: "higgsfield",
+          status: "COMPLETED",
+          videoUrl: data.video.url,
+        });
       }
       if (["failed", "nsfw", "canceled", "cancelled"].includes(status)) {
-        const message = typeof data.error === "string" ? data.error : data.error?.message;
-        return NextResponse.json({ error: message || `Higgsfield generation ended with status ${status}.`, code: `HIGGSFIELD_${status.toUpperCase()}` }, { status: 502 });
+        const message =
+          typeof data.error === "string" ? data.error : data.error?.message;
+        return NextResponse.json(
+          {
+            error:
+              message || `Higgsfield generation ended with status ${status}.`,
+            code: `HIGGSFIELD_${status.toUpperCase()}`,
+          },
+          { status: 502 },
+        );
       }
-      return NextResponse.json({ requestId: encodedRequestId, provider: "higgsfield", status: status === "in_progress" ? "IN_PROGRESS" : "IN_QUEUE" });
+      return NextResponse.json({
+        requestId: encodedRequestId,
+        provider: "higgsfield",
+        status: status === "in_progress" ? "IN_PROGRESS" : "IN_QUEUE",
+      });
     }
 
-    if (!process.env.FAL_KEY) return NextResponse.json({ error: "FAL_KEY is not configured on the server." }, { status: 500 });
+    if (!process.env.FAL_KEY)
+      return NextResponse.json(
+        { error: "FAL_KEY is not configured on the server." },
+        { status: 500 },
+      );
     const endpoint = falEndpointFor(model);
-    const status = await fal.queue.status(endpoint, { requestId: encodedRequestId, logs: true });
-    if (status.status !== "COMPLETED") return NextResponse.json({ requestId: encodedRequestId, provider: "fal", status: status.status, logs: "logs" in status ? status.logs : undefined });
-    const result = await fal.queue.result(endpoint, { requestId: encodedRequestId });
+    const status = await fal.queue.status(endpoint, {
+      requestId: encodedRequestId,
+      logs: true,
+    });
+    if (status.status !== "COMPLETED")
+      return NextResponse.json({
+        requestId: encodedRequestId,
+        provider: "fal",
+        status: status.status,
+        logs: "logs" in status ? status.logs : undefined,
+      });
+    const result = await fal.queue.result(endpoint, {
+      requestId: encodedRequestId,
+    });
     const data = result.data as { video?: { url?: string }; seed?: number };
-    if (!data.video?.url) return NextResponse.json({ error: "Generation completed but no video URL was returned." }, { status: 502 });
-    return NextResponse.json({ requestId: encodedRequestId, provider: "fal", status: "COMPLETED", videoUrl: data.video.url, seed: data.seed });
+    if (!data.video?.url)
+      return NextResponse.json(
+        { error: "Generation completed but no video URL was returned." },
+        { status: 502 },
+      );
+    return NextResponse.json({
+      requestId: encodedRequestId,
+      provider: "fal",
+      status: "COMPLETED",
+      videoUrl: data.video.url,
+      seed: data.seed,
+    });
   } catch (error) {
-    const payload = errorPayload(error, "Could not check video generation status.");
-    return NextResponse.json({ error: payload.error, code: payload.code }, { status: payload.status });
+    const payload = errorPayload(
+      error,
+      "Could not check video generation status.",
+    );
+    return NextResponse.json(
+      { error: payload.error, code: payload.code },
+      { status: payload.status },
+    );
   }
 }
