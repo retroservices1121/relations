@@ -142,6 +142,10 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
   const [rewriteErrors, setRewriteErrors] = useState<Record<number, string>>(
     {},
   );
+  const [episodeRevisionNote, setEpisodeRevisionNote] = useState("");
+  const [rewritingEpisode, setRewritingEpisode] = useState(false);
+  const [episodeRewriteError, setEpisodeRewriteError] = useState("");
+  const [episodeRewriteStatus, setEpisodeRewriteStatus] = useState("");
   const [uploading, setUploading] = useState<CharacterKey | null>(null);
   const [uploadError, setUploadError] = useState("");
   const [storageError, setStorageError] = useState("");
@@ -772,6 +776,60 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
       setRewritingScenes((prev) => ({ ...prev, [index]: false }));
     }
   }
+  async function rewriteEntireEpisode() {
+    const revisionNote = episodeRevisionNote.trim();
+    if (!revisionNote) {
+      setEpisodeRewriteError(
+        "Tell the screenplay AI what needs to change across the episode.",
+      );
+      return;
+    }
+    setRewritingEpisode(true);
+    setEpisodeRewriteError("");
+    setEpisodeRewriteStatus("");
+    try {
+      const scenes = episode.scenes.map((scene, index) => ({
+        prompt: scenePrompts[index] || scene.prompt,
+        caption: normalizeOverlay(index, overlays[index]).text,
+      }));
+      const response = await fetch("/api/rewrite-episode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          episodeTitle: episode.title,
+          revisionNote,
+          scenes,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok)
+        throw new Error(
+          data.error || "The screenplay AI could not revise this episode.",
+        );
+      if (!Array.isArray(data.scenes) || data.scenes.length !== episode.scenes.length)
+        throw new Error("The screenplay AI returned an incomplete episode revision.");
+      data.scenes.forEach(
+        (scene: { prompt?: unknown; caption?: unknown }, index: number) => {
+          if (typeof scene.prompt === "string")
+            updateScenePrompt(index, scene.prompt);
+          if (typeof scene.caption === "string")
+            updateOverlay(index, { text: scene.caption });
+        },
+      );
+      setEpisodeRevisionNote("");
+      setEpisodeRewriteStatus(
+        `✓ Rewrote all ${data.scenes.length} scene instructions and captions. Review them before regenerating video.`,
+      );
+    } catch (error) {
+      setEpisodeRewriteError(
+        error instanceof Error
+          ? error.message
+          : "The screenplay AI could not revise this episode.",
+      );
+    } finally {
+      setRewritingEpisode(false);
+    }
+  }
   const allScenesReady = useMemo(
     () =>
       episode.scenes.every(
@@ -996,6 +1054,43 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
             />
           </div>
         </div>
+      </section>
+      <section className={sceneStyles.episodeRevisionPanel}>
+        <span className="eyebrow">FULL EPISODE SCREENPLAY</span>
+        <h2>Revise the entire episode with AI</h2>
+        <p>
+          Use this when one correction affects multiple scenes, such as the
+          location, time of day, prop continuity, setup or ending. This rewrites
+          every scene instruction and caption together without generating video.
+        </p>
+        <div className={sceneStyles.episodeRevisionTools}>
+          <textarea
+            value={episodeRevisionNote}
+            onChange={(event) => setEpisodeRevisionNote(event.target.value)}
+            placeholder="Example: Move the decorative-pillow story to the living-room couch during daytime. Update every scene so the location, lighting, pillow positions and actions remain consistent."
+            aria-label="Episode-wide screenplay revision"
+          />
+          <SpeechInputButton
+            value={episodeRevisionNote}
+            onChange={setEpisodeRevisionNote}
+            label="Speak episode revision"
+          />
+        </div>
+        <button
+          type="button"
+          disabled={rewritingEpisode || !episodeRevisionNote.trim()}
+          onClick={() => void rewriteEntireEpisode()}
+        >
+          {rewritingEpisode
+            ? "Rewriting Entire Episode…"
+            : "Rewrite Entire Episode with AI"}
+        </button>
+        {episodeRewriteStatus && (
+          <p className="savedText">{episodeRewriteStatus}</p>
+        )}
+        {episodeRewriteError && (
+          <p className="errorText">{episodeRewriteError}</p>
+        )}
       </section>
       <div className="sceneList">
         {episode.scenes.map((scene, index) => {

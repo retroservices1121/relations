@@ -80,6 +80,32 @@ const SCENE_REWRITE_SCHEMA = {
   },
 } as const;
 
+const EPISODE_REWRITE_SCHEMA = {
+  name: "relations_episode_rewrite",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["scenes"],
+    properties: {
+      scenes: {
+        type: "array",
+        minItems: 2,
+        maxItems: 6,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["prompt", "caption"],
+          properties: {
+            prompt: { type: "string", minLength: 40 },
+            caption: { type: "string", minLength: 1, maxLength: 90 },
+          },
+        },
+      },
+    },
+  },
+} as const;
+
 const SYSTEM_PROMPT = `You are the senior animated-series screenwriter, storyboard director, and continuity supervisor inside Relations Studio.
 
 You are writing a short vertical episode for Household Nonsense, a recurring silent 2D relationship-comedy series starring Joe and Danda. Joe is an early-40s man with short dark hair, a neat full beard, and an average slightly stocky everyday-dad build. Danda is an early-40s woman with long dark-brown hair with warm highlights and normal adult proportions. Buddy is their small black-and-white Maltese-like dog.
@@ -95,6 +121,8 @@ Write simple, achievable animation. Prefer one location and one readable action 
 The characters do not speak or move their mouths. Dialogue is represented only by the caption field and is added later by Studio. Give every scene one short, useful overlay caption of no more than 90 characters. The captions should form a concise setup, escalation, and punchline when read in order. Do not leave captions blank. Do not put captions, subtitles, speech bubbles, labels, or generated words inside the visual prompt. Keep human mouths closed and visually still. The generated scene should rely on posture, eyes, eyebrows, props, and clear physical action.
 
 Bed and sleep scenes: Joe and Danda are barefoot for the entire scene. No shoes, sneakers, slippers, boots, or sandals on the bed or beneath bedding. Buddy remains a small black-and-white Maltese-like dog.
+
+Everyday household behavior must be believable for the stated time of day. Decorative pillows are arranged on a living-room sofa during daytime, or placed on a bed while making it in the morning; people do not freshly arrange decorative bed pillows immediately before going to sleep unless the creator explicitly makes that contradiction the joke.
 
 Use 2 to 6 scenes, normally 2 to 4. Use 4 to 12 seconds per scene. Fewer strong scenes are always better than repetitive filler. Return only the requested JSON.`;
 
@@ -367,6 +395,96 @@ Rewrite only the current scene. Preserve its intended story beat unless the crea
     if (error instanceof Error && error.name === "AbortError")
       throw new Error(
         "The screenplay AI timed out. Please try the scene revision again.",
+      );
+    if (error instanceof SyntaxError)
+      throw new Error(
+        "The screenplay AI returned malformed JSON. Please try again.",
+      );
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function rewriteEpisodeWithAi(input: {
+  episodeTitle: string;
+  revisionNote: string;
+  scenes: Array<{ prompt: string; caption: string }>;
+}) {
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  if (!apiKey)
+    throw new Error(
+      "OPENAI_API_KEY is not configured. Relations requires the screenplay AI to revise episodes.",
+    );
+  const model = screenplayModel();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 90000);
+  const currentScript = input.scenes
+    .map(
+      (scene, index) =>
+        `SCENE ${index + 1}\nCAPTION: ${scene.caption}\n${scene.prompt}`,
+    )
+    .join("\n\n---\n\n");
+  const userPrompt = `EPISODE: ${input.episodeTitle}
+
+CREATOR'S REQUIRED EPISODE-WIDE REVISION:
+${input.revisionNote}
+
+CURRENT COMPLETE SCREENPLAY:
+${currentScript}
+
+Rewrite the complete screenplay as one coherent episode. Apply the creator's correction everywhere it affects location, time of day, props, action, continuity, captions, setup, escalation, and payoff. Preserve the central joke and keep exactly ${input.scenes.length} scenes so existing production slots remain intact. Do not merely change one sentence while leaving conflicting details elsewhere.
+
+For every scene, return one complete production prompt with these labeled sections: STORY BEAT, CHARACTERS IN SHOT, FIRST FRAME / START STATE, ACTION BLOCKING, FINAL FRAME / END STATE, CONTINUITY LOCK, FORBIDDEN ACTIONS / ERRORS, CAMERA / COMPOSITION, and AUDIO / TEXT. Also return one short overlay caption for that scene.`;
+  try {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: userPrompt },
+        ],
+        response_format: {
+          type: "json_schema",
+          json_schema: EPISODE_REWRITE_SCHEMA,
+        },
+      }),
+      signal: controller.signal,
+      cache: "no-store",
+    });
+    const data = (await response.json().catch(() => null)) as {
+      error?: { message?: string };
+      choices?: Array<{ message?: { content?: string } }>;
+    } | null;
+    if (!response.ok)
+      throw new Error(
+        data?.error?.message ||
+          `Screenplay AI request failed with HTTP ${response.status}.`,
+      );
+    const content = data?.choices?.[0]?.message?.content;
+    if (!content)
+      throw new Error("The screenplay AI returned no episode revision.");
+    const result = JSON.parse(content) as {
+      scenes?: Array<{ prompt?: unknown; caption?: unknown }>;
+    };
+    if (!Array.isArray(result.scenes) || result.scenes.length !== input.scenes.length)
+      throw new Error("The screenplay AI changed the number of production scenes.");
+    return result.scenes.map((scene, index) => {
+      const prompt = clean(scene.prompt);
+      const caption = clean(scene.caption);
+      if (prompt.length < 40 || !caption)
+        throw new Error(`The screenplay AI returned an incomplete Scene ${index + 1}.`);
+      return { prompt, caption };
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError")
+      throw new Error(
+        "The screenplay AI timed out. Please try the episode revision again.",
       );
     if (error instanceof SyntaxError)
       throw new Error(

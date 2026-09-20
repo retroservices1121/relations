@@ -6,6 +6,44 @@
   border-radius: 13px;
 }
 
+.episodeRevisionPanel {
+  margin: 18px 0;
+  padding: 20px;
+  background: #fff7eb;
+  border: 1px solid #d8cec0;
+  border-radius: 16px;
+}
+
+.episodeRevisionPanel h2 {
+  margin: 6px 0 8px;
+}
+
+.episodeRevisionPanel p {
+  margin: 0 0 12px;
+}
+
+.episodeRevisionPanel > button {
+  margin-top: 12px;
+}
+
+.episodeRevisionTools {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.episodeRevisionTools textarea {
+  flex: 1;
+  min-height: 92px;
+  resize: vertical;
+  background: #fffdf8;
+  color: #2a2723;
+  border: 1px solid #d8cec0;
+  border-radius: 10px;
+  padding: 12px;
+  font: inherit;
+}
+
 .sceneScriptHeading {
   display: flex;
   align-items: center;
@@ -94,6 +132,14 @@
 }
 
 @media (max-width: 700px) {
+  .episodeRevisionTools {
+    flex-direction: column;
+  }
+
+  .episodeRevisionTools textarea {
+    width: 100%;
+  }
+
   .sceneScriptHeading {
     align-items: flex-start;
     flex-direction: column;
