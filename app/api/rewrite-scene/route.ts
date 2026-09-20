@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { rewriteSceneWithAi, screenplayConfigured } from "@/lib/screenplay";
+import { getSeries } from "@/lib/db";
+import { householdNonsenseSeries } from "@/lib/series";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -33,6 +35,8 @@ export async function POST(request: Request) {
       );
     const sceneIndex = Math.max(0, Number(body.sceneIndex) || 0);
     const totalScenes = Math.max(sceneIndex + 1, Number(body.totalScenes) || 1);
+    const seriesId = text(body.seriesId) || householdNonsenseSeries.id;
+    const series = (await getSeries(seriesId)) || householdNonsenseSeries;
     const prompt = await rewriteSceneWithAi({
       episodeTitle: text(body.episodeTitle) || "Untitled Episode",
       sceneIndex,
@@ -41,6 +45,7 @@ export async function POST(request: Request) {
       previousPrompt: text(body.previousPrompt),
       nextPrompt: text(body.nextPrompt),
       revisionNote,
+      series,
     });
     return NextResponse.json({ prompt });
   } catch (error) {

@@ -8,7 +8,7 @@ const HIGGSFIELD_MODEL = "higgsfield-seedance-2.5";
 const HIGGSFIELD_ENDPOINT = "bytedance/seedance-2.5/reference-to-video";
 const HIGGSFIELD_BASE_URL = "https://api.higgsfield.ai";
 
-const LOCKED_VISUAL_DIRECTION = `FINAL VISUAL DIRECTION OVERRIDES ANY CONFLICTING STYLE LANGUAGE BELOW.
+const HOUSEHOLD_VISUAL_DIRECTION = `FINAL VISUAL DIRECTION OVERRIDES ANY CONFLICTING STYLE LANGUAGE BELOW.
 
 CHARACTER IDENTITY IS THE HIGHEST PRIORITY. A REFERENCE MAP is supplied separately for each scene and defines exactly which recurring characters are allowed to appear. Treat only those supplied images as exact recurring character model references, not loose inspiration. Preserve the SAME recognizable face shape, eye shape, eyebrows, nose, mouth, hairstyle, beard shape, skin tone, body proportions and clothing identity from each approved reference. Do not redesign, beautify, age-shift, de-age, stylize into a new person, change ethnicity, change facial proportions or substitute a generic cartoon person. Do not introduce a recurring character whose reference is not included for the current scene.
 
@@ -36,31 +36,52 @@ The only action in this shot is: Danda walks directly to the bed, climbs into be
 The wall control never moves. The room brightness never changes. Do not depict Danda switching anything on or off. Do not depict a finger near the wall control. Do not make the wall control the focal action of the shot.
 Camera: stable medium-wide view angled toward the bed so Danda's path is FROM the doorway TO the bed. The doorway and wall plate stay behind her as she moves farther away from them.`;
 
-type ReferenceCharacterKey = "joe" | "danda" | "buddy";
+type ReferenceCharacterKey = string;
 
-function characterReferenceLock(keys: ReferenceCharacterKey[]) {
+function characterReferenceLock(
+  keys: ReferenceCharacterKey[],
+  names: Record<string, string>,
+  characterDescriptions: Record<string, string>,
+) {
   const mapping = keys
     .map(
       (key, index) =>
-        `@Image${index + 1} is ${key === "joe" ? "Joe" : key === "danda" ? "Danda" : "Buddy"}.`,
+        `@Image${index + 1} is ${names[key] || key}.`,
     )
     .join(" ");
   const descriptions = keys
-    .map((key) =>
-      key === "joe"
-        ? "Joe is an early-40s man with short dark hair, a full neatly trimmed dark beard, and an average slightly stocky everyday-dad build. Joe must never become muscular, athletic, broad-chested or physically defined."
-        : key === "danda"
-          ? "Danda is an early-40s woman with long dark brown hair with warm highlights and normal adult proportions. When Joe is also present, Danda is only moderately shorter than Joe; standing together, the top of her head is approximately around Joe's eye or eyebrow level. Never make her tiny, miniature, child-sized or disproportionately small."
-          : "Buddy is a small black-and-white Maltese-like dog. Preserve his small size, black-and-white coat pattern, face, proportions, and cartoon design. Never replace him with a person, a large dog, or a different breed.",
-    )
+    .map((key) => `${names[key] || key}: ${characterDescriptions[key] || "Preserve this character exactly from the supplied reference."}`)
     .join("\n");
   const allowed = keys
-    .map((key) => (key === "joe" ? "Joe" : key === "danda" ? "Danda" : "Buddy"))
+    .map((key) => names[key] || key)
     .join(" and ");
   return `REFERENCE MAP — EXACTLY FOLLOW THIS FOR THE CURRENT SCENE:
 ${mapping}
 Only ${allowed} may appear from the recurring cast in this scene. Do not add the other recurring character just because they exist elsewhere in the series. Do not duplicate, clone, mirror, or create an extra copy of any supplied character.
 ${descriptions}`;
+}
+
+function genericVisualDirection(input: {
+  visualStyle: string;
+  rules: string;
+  format: string;
+}) {
+  const performanceRule = input.format === "silent"
+    ? "This is a silent series. All human mouths stay closed and visually still. Generate no voices, speech-like sounds, narration, singing, or vocal reactions."
+    : "Do not generate readable on-screen text. Dialogue, final voices, and captions are added later in Studio; avoid invented or garbled speech.";
+  return `FINAL SERIES DIRECTION OVERRIDES CONFLICTING STYLE LANGUAGE BELOW.
+
+CHARACTER IDENTITY IS THE HIGHEST PRIORITY. Treat each supplied image as the exact model reference for that recurring character. Preserve recognizable face, body proportions, clothing identity, species, and design. Do not redesign, duplicate, clone, mirror, or substitute a generic character. Do not add a recurring character whose reference is not supplied.
+
+SERIES VISUAL STYLE:
+${input.visualStyle || "Preserve the exact visual language of the approved character references."}
+
+SERIES PRODUCTION RULES:
+${input.rules || "Use clear, achievable animation and preserve continuity."}
+
+${performanceRule}
+
+Do not generate captions, subtitles, speech bubbles, labels, signs, written dialogue, or other on-screen text. Studio adds all text overlays later.`;
 }
 
 function isHiggsfieldModel(model: string) {
@@ -108,7 +129,7 @@ function errorPayload(error: unknown, fallback: string) {
   if (realPersonBlocked)
     return {
       error:
-        "The video provider blocked this reference because it appears to contain a real person. Use the approved cartoon Joe and Danda character images instead of source photos.",
+        "The video provider blocked a reference because it appears to contain a real person. Use an approved stylized character reference instead of a source photo.",
       code: "REAL_PERSON_REFERENCE_BLOCKED",
       status: 422,
     };
@@ -138,6 +159,12 @@ export async function POST(request: Request) {
       prompt,
       imageUrls = [],
       characterKeys = [],
+      characterNames = {},
+      characterDescriptions = {},
+      seriesId = "household-nonsense",
+      seriesFormat = "silent",
+      seriesVisualStyle = "",
+      seriesRules = "",
       duration = 5,
       model = "seedance-fast",
     } = body;
@@ -150,21 +177,19 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            "Upload the approved cartoon reference required for this scene before generating.",
+            "Upload the approved character reference required for this scene before generating.",
         },
         { status: 400 },
       );
     const requestedKeys = Array.isArray(characterKeys)
       ? characterKeys.filter(
           (key: unknown): key is ReferenceCharacterKey =>
-            key === "joe" || key === "danda" || key === "buddy",
+            typeof key === "string" && /^[a-z0-9][a-z0-9-]{0,79}$/.test(key),
         )
       : [];
     const safeCharacterKeys: ReferenceCharacterKey[] = requestedKeys.length
       ? requestedKeys.slice(0, imageUrls.length)
-      : imageUrls.length === 1
-        ? ["joe"]
-        : ["joe", "danda"];
+      : [];
     if (safeCharacterKeys.length !== imageUrls.length)
       return NextResponse.json(
         {
@@ -191,15 +216,22 @@ export async function POST(request: Request) {
       4,
       Math.min(maxDuration, Number(duration) || 5),
     );
-    const isBedSleepScene =
+    const isHouseholdNonsense = seriesId === "household-nonsense";
+    const isBedSleepScene = isHouseholdNonsense &&
       /\b(bed|bedroom|mattress|bedding|sleep|asleep|sleeping)\b/i.test(prompt);
     const bedSleepPrompt = isBedSleepScene ? `\n\n${BED_SLEEP_LOCK}` : "";
-    const isLightPassScene = prompt.includes("LIGHT-SWITCH STATE LOCK");
+    const isLightPassScene = isHouseholdNonsense && prompt.includes("LIGHT-SWITCH STATE LOCK");
     const lightPassPrompt = isLightPassScene
       ? `\n\n${LIGHT_PASS_OVERRIDE}`
       : "";
-    const lockedPrompt = `${LOCKED_VISUAL_DIRECTION}\n\n${characterReferenceLock(safeCharacterKeys)}${bedSleepPrompt}\n\nSCENE INSTRUCTIONS:\n${prompt}${lightPassPrompt}`;
+    const nameMap = characterNames && typeof characterNames === "object" ? characterNames as Record<string, string> : {};
+    const descriptionMap = characterDescriptions && typeof characterDescriptions === "object" ? characterDescriptions as Record<string, string> : {};
+    const visualDirection = isHouseholdNonsense
+      ? HOUSEHOLD_VISUAL_DIRECTION
+      : genericVisualDirection({ visualStyle: String(seriesVisualStyle || ""), rules: String(seriesRules || ""), format: String(seriesFormat || "silent") });
+    const lockedPrompt = `${visualDirection}\n\n${characterReferenceLock(safeCharacterKeys, nameMap, descriptionMap)}${bedSleepPrompt}\n\nSCENE INSTRUCTIONS:\n${prompt}${lightPassPrompt}`;
     const isMusicalScene = prompt.includes("MUSICAL TIMING TARGET:");
+    const generationAudioDisabled = isMusicalScene || seriesFormat === "dialogue";
 
     if (usingHiggsfield) {
       const response = await fetch(
@@ -218,7 +250,7 @@ export async function POST(request: Request) {
             resolution: "720p",
             aspect_ratio: "9:16",
             output_format: "mp4",
-            generate_audio: !isMusicalScene,
+            generate_audio: !generationAudioDisabled,
           }),
           cache: "no-store",
         },
@@ -246,6 +278,7 @@ export async function POST(request: Request) {
         provider: "higgsfield",
         status: submission.status || "queued",
         musicalAudioDisabled: isMusicalScene,
+        generationAudioDisabled,
       });
     }
 
@@ -257,7 +290,7 @@ export async function POST(request: Request) {
         resolution: "720p",
         duration: String(safeDuration),
         aspect_ratio: "9:16",
-        generate_audio: !isMusicalScene,
+        generate_audio: !generationAudioDisabled,
         bitrate_mode: "standard",
       },
     });
@@ -273,6 +306,7 @@ export async function POST(request: Request) {
       provider: "fal",
       status: "queued",
       musicalAudioDisabled: isMusicalScene,
+      generationAudioDisabled,
     });
   } catch (error) {
     const payload = errorPayload(error, "Video generation failed.");

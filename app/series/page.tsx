@@ -1,0 +1,6 @@
+import Link from "next/link";
+import { dbConfigured, listSeries } from "@/lib/db";
+import styles from "./series.module.css";
+
+export const dynamic="force-dynamic";
+export default async function SeriesPage(){const series=dbConfigured()?await listSeries().catch(()=>[]):[];return <main className={styles.shell}><div className={styles.frame}><nav className={styles.nav}><Link href="/studio">← Production Studio</Link><b>Relations Series</b></nav><section className={styles.hero}><div><span>SHOW LIBRARY</span><h1>Your animated series</h1><p>Each series has its own cast, visual identity, screenplay rules and production settings. Household Nonsense remains protected and unchanged.</p></div><Link href="/series/new">Create New Series</Link></section><div className={styles.grid}>{series.map((item)=><article className={styles.card} key={item.id}><span className={item.locked?styles.locked:""}>{item.locked?"PROTECTED ORIGINAL":"CUSTOM SERIES"}</span><h2>{item.title}</h2><p>{item.description||"No description yet."}</p><div className={styles.meta}><span>{item.characters.length} characters</span><span>{item.format}</span><span>{item.musicMode==="household-theme"?"Original theme":"No locked theme"}</span></div><Link href={`/series/${item.id}`}>Open series →</Link></article>)}</div></div></main>}

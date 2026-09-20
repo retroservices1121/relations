@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createCustomEpisode, listCustomEpisodes } from "../../../lib/db";
+import { createCustomEpisode, getSeries, listCustomEpisodes } from "../../../lib/db";
 import {
   screenplayConfigured,
   writeEpisodeScreenplay,
@@ -34,6 +34,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const prompt = clean(body.prompt);
     const mode = body.mode === "script" ? "script" : "idea";
+    const seriesId = clean(body.seriesId) || "household-nonsense";
     if (prompt.length < 10)
       return NextResponse.json(
         { error: "Give the screenplay AI a little more detail first." },
@@ -48,7 +49,10 @@ export async function POST(request: NextRequest) {
         { status: 503 },
       );
     }
-    const screenplay = await writeEpisodeScreenplay({ premise: prompt, mode });
+    const series = await getSeries(seriesId);
+    if (!series) return NextResponse.json({ error: "The selected series could not be found." }, { status: 404 });
+    if (!series.characters.length) return NextResponse.json({ error: "Add at least one character to the series before writing an episode." }, { status: 409 });
+    const screenplay = await writeEpisodeScreenplay({ premise: prompt, mode, series });
     const requestedTitle = clean(body.title);
     const episode = await createCustomEpisode({
       title: requestedTitle || screenplay.title,
@@ -56,6 +60,7 @@ export async function POST(request: NextRequest) {
       sourcePrompt: prompt,
       inputMode: mode,
       scenes: screenplay.scenes,
+      seriesId,
     });
     return NextResponse.json({ episode, plannedBy: "screenplay-ai" });
   } catch (error) {

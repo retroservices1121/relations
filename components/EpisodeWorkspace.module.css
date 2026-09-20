@@ -22,18 +22,12 @@
   margin: 0 0 12px;
 }
 
-.episodeRevisionPanel > button {
-  margin-top: 12px;
-}
-
 .episodeRevisionTools {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
+  display: block;
 }
 
 .episodeRevisionTools textarea {
-  flex: 1;
+  width: 100%;
   min-height: 92px;
   resize: vertical;
   background: #fffdf8;
@@ -42,6 +36,37 @@
   border-radius: 10px;
   padding: 12px;
   font: inherit;
+}
+
+.episodeRevisionActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.episodeRevisionSubmit {
+  appearance: none;
+  border: 0;
+  border-radius: 11px;
+  padding: 13px 18px;
+  background: #20201d;
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 7px 18px rgba(32, 32, 29, 0.16);
+}
+
+.episodeRevisionSubmit:hover:not(:disabled) {
+  background: #b45847;
+}
+
+.episodeRevisionSubmit:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
 }
 
 .sceneScriptHeading {
@@ -140,6 +165,15 @@
     width: 100%;
   }
 
+  .episodeRevisionActions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .episodeRevisionSubmit {
+    width: 100%;
+  }
+
   .sceneScriptHeading {
     align-items: flex-start;
     flex-direction: column;
@@ -161,6 +195,12 @@
 
 .sceneActions button {
   margin-top: 0 !important;
+}
+
+.restoreAudioButton {
+  background: #fff7eb !important;
+  color: #6f5141 !important;
+  border: 1px solid #cdbbaa !important;
 }
 
 .sceneActions a {

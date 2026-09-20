@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Episode } from "../data/episodes";
+import { householdNonsenseSeries, type SeriesConfig } from "../lib/series";
 import sceneStyles from "./EpisodeWorkspace.module.css";
 import SpeechInputButton from "./SpeechInputButton";
 
@@ -22,7 +23,7 @@ type OverlayConfig = {
   end: number;
 };
 type TimedCaption = { text: string; start: number; end: number };
-type CharacterKey = "joe" | "danda" | "buddy";
+type CharacterKey = string;
 type PromptSaveStatus = "idle" | "saving" | "saved" | "error";
 type DatabaseScene = {
   scene_index: number;
@@ -39,9 +40,9 @@ type DatabaseScene = {
 };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-const JOE_STORAGE_KEY = "relations:character:joe";
-const DANDA_STORAGE_KEY = "relations:character:danda";
-const BUDDY_STORAGE_KEY = "relations:character:buddy";
+function referenceStorageKey(seriesId: string, characterKey: string) {
+  return `relations:series:${seriesId}:character:${characterKey}`;
+}
 
 function parseTimedCaptions(
   value: unknown,
@@ -120,10 +121,8 @@ function ScenePreview({
   );
 }
 
-export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
-  const [joeUrl, setJoeUrl] = useState("");
-  const [dandaUrl, setDandaUrl] = useState("");
-  const [buddyUrl, setBuddyUrl] = useState("");
+export default function EpisodeWorkspace({ episode, series = householdNonsenseSeries }: { episode: Episode; series?: SeriesConfig }) {
+  const [referenceUrls, setReferenceUrls] = useState<Record<string, string>>({});
   const [model, setModel] = useState("seedance-fast");
   const [sceneStates, setSceneStates] = useState<Record<number, SceneState>>(
     {},
@@ -158,6 +157,10 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
   const [regeneratingSoundtracks, setRegeneratingSoundtracks] = useState(false);
   const [soundtrackProgress, setSoundtrackProgress] = useState("");
   const [soundtrackError, setSoundtrackError] = useState("");
+  const [restoringAudio, setRestoringAudio] = useState<Record<number, boolean>>(
+    {},
+  );
+  const [restoringAllAudio, setRestoringAllAudio] = useState(false);
   const overlayTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>(
     {},
   );
@@ -216,9 +219,7 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
   }
   useEffect(() => {
     let cancelled = false;
-    setJoeUrl(localStorage.getItem(JOE_STORAGE_KEY) || "");
-    setDandaUrl(localStorage.getItem(DANDA_STORAGE_KEY) || "");
-    setBuddyUrl(localStorage.getItem(BUDDY_STORAGE_KEY) || "");
+    setReferenceUrls(Object.fromEntries(series.characters.map((character) => [character.key, localStorage.getItem(referenceStorageKey(series.id, character.key)) || character.referenceUrl || ""])));
     const defaults = Object.fromEntries(
       episode.scenes.map((_, index) => [index, defaultOverlay(index)]),
     );
@@ -321,7 +322,7 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
       cancelled = true;
       Object.values(promptTimers.current).forEach(clearTimeout);
     };
-  }, [episode.id, episode.scenes, projectStorageKey]);
+  }, [episode.id, episode.scenes, projectStorageKey, series]);
   useEffect(() => {
     if (!projectLoaded) return;
     localStorage.setItem(
@@ -370,19 +371,10 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
     }
   }, [projectLoaded, sceneStates, model]);
   function persistReference(character: CharacterKey, url: string) {
-    if (character === "joe") {
-      setJoeUrl(url);
-      if (url) localStorage.setItem(JOE_STORAGE_KEY, url);
-      else localStorage.removeItem(JOE_STORAGE_KEY);
-    } else if (character === "danda") {
-      setDandaUrl(url);
-      if (url) localStorage.setItem(DANDA_STORAGE_KEY, url);
-      else localStorage.removeItem(DANDA_STORAGE_KEY);
-    } else {
-      setBuddyUrl(url);
-      if (url) localStorage.setItem(BUDDY_STORAGE_KEY, url);
-      else localStorage.removeItem(BUDDY_STORAGE_KEY);
-    }
+    setReferenceUrls((current) => ({ ...current, [character]: url }));
+    const key = referenceStorageKey(series.id, character);
+    if (url) localStorage.setItem(key, url);
+    else localStorage.removeItem(key);
   }
   async function uploadReference(character: CharacterKey, file?: File) {
     if (!file) return;
@@ -507,26 +499,19 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
       }));
       return;
     }
-    const explicitKeys = (scene.characters || []).filter(
-      (key): key is CharacterKey =>
-        key === "joe" || key === "danda" || key === "buddy",
-    );
+    const allowedKeys = new Set(series.characters.map((character) => character.key));
+    const explicitKeys = (scene.characters || []).filter((key): key is CharacterKey => allowedKeys.has(key));
     const characterKeys: CharacterKey[] = explicitKeys.length
       ? explicitKeys
-      : ["joe", "danda"];
-    const referenceUrls: Record<CharacterKey, string> = {
-      joe: joeUrl,
-      danda: dandaUrl,
-      buddy: buddyUrl,
-    };
-    const missing = characterKeys.filter((key) => !referenceUrls[key].trim());
+      : series.characters.slice(0, 2).map((character) => character.key);
+    const missing = characterKeys.filter((key) => !(referenceUrls[key] || "").trim());
     if (missing.length) {
       setSceneStates((prev) => ({
         ...prev,
         [index]: {
           ...prev[index],
           status: "error",
-          error: `Upload the approved cartoon reference for ${missing.map((key) => (key === "joe" ? "Joe" : key === "danda" ? "Danda" : "Buddy")).join(" and ")} before generating this scene.`,
+          error: `Upload the approved reference for ${missing.map((key) => series.characters.find((character) => character.key === key)?.name || key).join(" and ")} before generating this scene.`,
         },
       }));
       return;
@@ -535,7 +520,7 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
     const referenceMap = characterKeys
       .map(
         (key, position) =>
-          `@Image${position + 1} is ${key === "joe" ? "Joe" : key === "danda" ? "Danda" : "Buddy"}.`,
+          `@Image${position + 1} is ${series.characters.find((character) => character.key === key)?.name || key}.`,
       )
       .join(" ");
     const selectedModel = model;
@@ -553,7 +538,13 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
           duration: scene.duration,
           imageUrls,
           characterKeys,
-          prompt: `Use only the approved recurring cartoon character assets required for this scene. ${referenceMap} Preserve the referenced character faces, hairstyles, clothing identity and overall 2D cartoon design. Do not introduce a referenced character who is not listed for this scene. CHARACTER PROPORTIONS ARE LOCKED: Joe has an average, slightly stocky everyday-dad build. Danda is only moderately shorter than Joe, like a normal adult couple with a modest height difference. Both are normally proportioned adults. STYLE IS LOCKED: simple flat 2D cartoon comedy with clean bold outlines, exaggerated facial expressions, physical reactions, playful visual timing and readable uncluttered backgrounds. Use visual pantomime and held facial poses. All soundtrack and text overlays are added later in Studio. Vertical 9:16 relationship-comedy short. Scene action: ${prompt}`,
+          characterNames: Object.fromEntries(series.characters.map((character) => [character.key, character.name])),
+          characterDescriptions: Object.fromEntries(series.characters.map((character) => [character.key, character.description])),
+          seriesId: series.id,
+          seriesFormat: series.format,
+          seriesVisualStyle: series.visualStyle,
+          seriesRules: series.screenplayRules,
+          prompt: `Use only the approved recurring character assets required for this scene. ${referenceMap} Preserve each referenced identity exactly. Do not introduce a recurring character who is not listed for this scene. SERIES VISUAL STYLE: ${series.visualStyle} SERIES RULES: ${series.screenplayRules} Vertical 9:16 animated-series episode. Scene action: ${prompt}`,
         }),
       });
       const data = await response.json();
@@ -586,6 +577,12 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
   }
   async function regenerateAllSoundtracks() {
     if (regeneratingSoundtracks) return;
+    if (
+      !window.confirm(
+        "AI sound effects can occasionally invent unwanted noises. Continue and replace the current audio for every scene?",
+      )
+    )
+      return;
     const ready = episode.scenes
       .map((scene, index) => ({ scene, index, state: sceneStates[index] }))
       .filter(
@@ -651,6 +648,80 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
       setSoundtrackProgress("");
     } finally {
       setRegeneratingSoundtracks(false);
+    }
+  }
+  async function restoreSceneOriginalAudio(index: number) {
+    const state = sceneStates[index];
+    if (!state?.sourceVideoUrl || restoringAudio[index]) return false;
+    setRestoringAudio((current) => ({ ...current, [index]: true }));
+    setSoundtrackError("");
+    clearSavedFinal();
+    try {
+      const response = await fetch("/api/project", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "restore-original-audio",
+          episodeId: episode.id,
+          sceneIndex: index,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok)
+        throw new Error(
+          data.error || `Could not restore Scene ${index + 1} audio.`,
+        );
+      const restoredUrl = data.scene?.video_url || state.sourceVideoUrl;
+      setSceneStates((current) => ({
+        ...current,
+        [index]: {
+          ...current[index],
+          status: "done",
+          videoUrl: restoredUrl,
+          sourceVideoUrl: data.scene?.source_video_url || state.sourceVideoUrl,
+          themeBaked: false,
+          persisted: true,
+          error: undefined,
+        },
+      }));
+      setSoundtrackProgress(`✓ Restored Scene ${index + 1} to its original generated audio.`);
+      return true;
+    } catch (error) {
+      setSoundtrackError(
+        error instanceof Error
+          ? error.message
+          : `Could not restore Scene ${index + 1} audio.`,
+      );
+      return false;
+    } finally {
+      setRestoringAudio((current) => ({ ...current, [index]: false }));
+    }
+  }
+  async function restoreAllOriginalAudio() {
+    if (restoringAllAudio) return;
+    const restorable = episode.scenes
+      .map((_, index) => index)
+      .filter(
+        (index) =>
+          Boolean(sceneStates[index]?.sourceVideoUrl) &&
+          sceneStates[index]?.videoUrl !== sceneStates[index]?.sourceVideoUrl,
+      );
+    if (!restorable.length) {
+      setSoundtrackError("No original generated scene audio is available to restore.");
+      return;
+    }
+    setRestoringAllAudio(true);
+    setSoundtrackError("");
+    setSoundtrackProgress("");
+    try {
+      let restored = 0;
+      for (const index of restorable)
+        if (await restoreSceneOriginalAudio(index)) restored += 1;
+      setSoundtrackProgress(
+        `✓ Restored original generated audio for ${restored} scene${restored === 1 ? "" : "s"}.`,
+      );
+    } finally {
+      setRestoringAllAudio(false);
     }
   }
   function updateOverlay(index: number, patch: Partial<OverlayConfig>) {
@@ -751,6 +822,7 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
           previousPrompt: promptFor(index - 1),
           nextPrompt: promptFor(index + 1),
           revisionNote,
+          seriesId: series.id,
         }),
       });
       const data = await response.json();
@@ -799,6 +871,7 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
           episodeTitle: episode.title,
           revisionNote,
           scenes,
+          seriesId: series.id,
         }),
       });
       const data = await response.json();
@@ -866,7 +939,7 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
       const response = await fetch("/api/render-episode", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ episodeId: episode.id, scenes }),
+        body: JSON.stringify({ episodeId: episode.id, scenes, musicMode: series.musicMode }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Final render failed");
@@ -892,7 +965,7 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
           <a className="backLink" href="/">
             ← Episode Library
           </a>
-          <span className="eyebrow">JOE + DANDA</span>
+          <span className="eyebrow">{series.title}</span>
           <h1>{episode.title}</h1>
           <p>{episode.hook}</p>
         </div>
@@ -941,15 +1014,16 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
       <section className="referencePanel">
         <div>
           <span className="eyebrow">LOCKED CHARACTER LIBRARY</span>
-          <h2>Joe + Danda + Buddy references</h2>
+          <h2>{series.title} character references</h2>
           <p>
             Use the final cartoon character images here. Once uploaded, they are
             remembered and reused automatically across every episode on this
             device.
           </p>
           <p className="statusText">
-            Silent-cartoon format is locked: Studio adds soundtrack and
-            precisely timed overlays after generation.
+            {series.format === "silent"
+              ? "Silent format is locked for this series; Studio adds timed overlays after generation."
+              : "Dialogue format is enabled for this series; character and screenplay rules come from its series bible."}
           </p>
           <p className="statusText">
             Production storage: Railway Postgres saves project data and
@@ -959,100 +1033,18 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
           {storageError && <p className="errorText">{storageError}</p>}
         </div>
         <div className="referenceInputs">
-          <div className="characterRef">
-            <label>Joe cartoon reference {joeUrl && "✓ Locked"}</label>
-            {joeUrl && (
-              <img
-                className="referenceThumb"
-                src={joeUrl}
-                alt="Joe cartoon reference"
-              />
-            )}
-            <label className="uploadButton">
-              {uploading === "joe"
-                ? "Uploading Joe…"
-                : joeUrl
-                  ? "Replace Joe Cartoon"
-                  : "Upload Joe Cartoon"}
-              <input
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                disabled={uploading !== null}
-                onChange={(event) =>
-                  uploadReference("joe", event.target.files?.[0])
-                }
-              />
-            </label>
-            <input
-              value={joeUrl}
-              onChange={(event) => persistReference("joe", event.target.value)}
-              placeholder="Or paste the approved Joe cartoon URL"
-            />
-          </div>
-          <div className="characterRef">
-            <label>Danda cartoon reference {dandaUrl && "✓ Locked"}</label>
-            {dandaUrl && (
-              <img
-                className="referenceThumb"
-                src={dandaUrl}
-                alt="Danda cartoon reference"
-              />
-            )}
-            <label className="uploadButton">
-              {uploading === "danda"
-                ? "Uploading Danda…"
-                : dandaUrl
-                  ? "Replace Danda Cartoon"
-                  : "Upload Danda Cartoon"}
-              <input
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                disabled={uploading !== null}
-                onChange={(event) =>
-                  uploadReference("danda", event.target.files?.[0])
-                }
-              />
-            </label>
-            <input
-              value={dandaUrl}
-              onChange={(event) =>
-                persistReference("danda", event.target.value)
-              }
-              placeholder="Or paste the approved Danda cartoon URL"
-            />
-          </div>
-          <div className="characterRef">
-            <label>Buddy cartoon reference {buddyUrl && "✓ Locked"}</label>
-            {buddyUrl && (
-              <img
-                className="referenceThumb"
-                src={buddyUrl}
-                alt="Buddy cartoon reference"
-              />
-            )}
-            <label className="uploadButton">
-              {uploading === "buddy"
-                ? "Uploading Buddy…"
-                : buddyUrl
-                  ? "Replace Buddy Cartoon"
-                  : "Upload Buddy Cartoon"}
-              <input
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                disabled={uploading !== null}
-                onChange={(event) =>
-                  uploadReference("buddy", event.target.files?.[0])
-                }
-              />
-            </label>
-            <input
-              value={buddyUrl}
-              onChange={(event) =>
-                persistReference("buddy", event.target.value)
-              }
-              placeholder="Or paste the approved Buddy cartoon URL"
-            />
-          </div>
+          {series.characters.map((character) => {
+            const url = referenceUrls[character.key] || "";
+            return <div className="characterRef" key={character.key}>
+              <label>{character.name} reference {url && "✓ Locked"}</label>
+              {url && <img className="referenceThumb" src={url} alt={`${character.name} reference`} />}
+              <label className="uploadButton">
+                {uploading === character.key ? `Uploading ${character.name}…` : url ? `Replace ${character.name} Reference` : `Upload ${character.name} Reference`}
+                <input type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading !== null} onChange={(event) => uploadReference(character.key, event.target.files?.[0])} />
+              </label>
+              <input value={url} onChange={(event) => persistReference(character.key, event.target.value)} placeholder={`Or paste the approved ${character.name} image URL`} />
+            </div>;
+          })}
         </div>
       </section>
       <section className={sceneStyles.episodeRevisionPanel}>
@@ -1070,21 +1062,24 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
             placeholder="Example: Move the decorative-pillow story to the living-room couch during daytime. Update every scene so the location, lighting, pillow positions and actions remain consistent."
             aria-label="Episode-wide screenplay revision"
           />
+        </div>
+        <div className={sceneStyles.episodeRevisionActions}>
           <SpeechInputButton
             value={episodeRevisionNote}
             onChange={setEpisodeRevisionNote}
             label="Speak episode revision"
           />
+          <button
+            type="button"
+            className={sceneStyles.episodeRevisionSubmit}
+            disabled={rewritingEpisode || !episodeRevisionNote.trim()}
+            onClick={() => void rewriteEntireEpisode()}
+          >
+            {rewritingEpisode
+              ? "Submitting Revision…"
+              : "Submit Full Episode Revision"}
+          </button>
         </div>
-        <button
-          type="button"
-          disabled={rewritingEpisode || !episodeRevisionNote.trim()}
-          onClick={() => void rewriteEntireEpisode()}
-        >
-          {rewritingEpisode
-            ? "Rewriting Entire Episode…"
-            : "Rewrite Entire Episode with AI"}
-        </button>
         {episodeRewriteStatus && (
           <p className="savedText">{episodeRewriteStatus}</p>
         )}
@@ -1312,6 +1307,19 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
                     Download Scene {index + 1}
                   </a>
                 )}
+                {state.sourceVideoUrl &&
+                  state.videoUrl !== state.sourceVideoUrl && (
+                    <button
+                      type="button"
+                      className={sceneStyles.restoreAudioButton}
+                      disabled={Boolean(restoringAudio[index]) || restoringAllAudio}
+                      onClick={() => void restoreSceneOriginalAudio(index)}
+                    >
+                      {restoringAudio[index]
+                        ? "Restoring Audio…"
+                        : "Restore Original Audio"}
+                    </button>
+                  )}
               </div>
             </article>
           );
@@ -1319,19 +1327,32 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
       </div>
       <section className="finalBuilder">
         <span className="eyebrow">EPISODE AUDIO</span>
-        <h2>Household Nonsense soundtrack</h2>
+        <h2>{series.title} audio</h2>
         <p>
-          Keep the approved visuals and regenerate only the sound effects for
-          every scene using the current no-voices audio style. The staple theme
-          is added once across the full episode during final export.
+          AI sound effects replace the current scene audio while preserving the
+          approved visuals. The audio model can occasionally invent unwanted
+          noises. You can restore the original generated audio without spending
+          video credits.
+          {series.musicMode === "household-theme"
+            ? " The staple theme is added once across the full episode during final export."
+            : " No automatic background theme will be added during final export."}
         </p>
         <button
-          disabled={!allScenesReady || regeneratingSoundtracks}
+          disabled={!allScenesReady || regeneratingSoundtracks || restoringAllAudio}
           onClick={() => void regenerateAllSoundtracks()}
         >
           {regeneratingSoundtracks
             ? soundtrackProgress || "Regenerating Soundtracks…"
-            : "Regenerate All Scene SFX"}
+            : "Generate AI Sound Effects for All Scenes"}
+        </button>
+        <button
+          type="button"
+          disabled={regeneratingSoundtracks || restoringAllAudio || !episode.scenes.some((_, index) => Boolean(sceneStates[index]?.sourceVideoUrl) && sceneStates[index]?.videoUrl !== sceneStates[index]?.sourceVideoUrl)}
+          onClick={() => void restoreAllOriginalAudio()}
+        >
+          {restoringAllAudio
+            ? "Restoring Original Audio…"
+            : "Restore Original Audio for All Scenes"}
         </button>
         {soundtrackProgress && !regeneratingSoundtracks && (
           <p className="savedText">{soundtrackProgress}</p>
@@ -1343,8 +1364,10 @@ export default function EpisodeWorkspace({ episode }: { episode: Episode }) {
         <h2>Build the finished short</h2>
         <p>
           Studio stitches the approved scenes in order, burns each caption only
-          during its intended moment, keeps the scene sound effects, then runs
-          one continuous Household Nonsense music bed across the full episode.
+          during its intended moment, keeps the scene sound effects, then uses
+          {series.musicMode === "household-theme"
+            ? " one continuous Household Nonsense music bed across the full episode."
+            : " the approved scene audio without adding a series theme."}
         </p>
         <button
           disabled={!allScenesReady || renderingFinal}

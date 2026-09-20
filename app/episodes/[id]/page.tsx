@@ -8,7 +8,8 @@ import { extraEpisodes } from "../../../data/extraEpisodes";
 import { musicalEpisodes } from "../../../data/musicalEpisodes";
 import { episodeOverrides } from "../../../data/episodeOverrides";
 import { newEpisodes } from "../../../data/newEpisodes";
-import { dbConfigured, getCustomEpisode } from "../../../lib/db";
+import { dbConfigured, getCustomEpisode, getSeries } from "../../../lib/db";
+import { householdNonsenseSeries } from "../../../lib/series";
 import styles from "./episode.module.css";
 
 const episodes: Episode[] = [
@@ -35,11 +36,15 @@ export default async function EpisodePage({ params }: { params: Promise<{ id: st
 
   if (!episode) notFound();
 
+  const series = episode.seriesId && dbConfigured()
+    ? await getSeries(episode.seriesId).catch(() => null)
+    : householdNonsenseSeries;
+
   const musical = musicalEpisodes.find((item) => item.id === id);
 
   return (
     <div className={styles.shell}>
-      {musical ? <MusicalProductionWorkspace episode={musical} /> : <EpisodeWorkspace episode={episode} />}
+      {musical ? <MusicalProductionWorkspace episode={musical} /> : <EpisodeWorkspace episode={episode} series={series || householdNonsenseSeries} />}
       <FalCostDashboard episodeId={episode.id} />
     </div>
   );

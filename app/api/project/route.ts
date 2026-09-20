@@ -5,6 +5,7 @@ import {
   saveOverlay,
   saveScenePrompt,
   clearFinalVideo,
+  restoreOriginalSceneAudio,
 } from "@/lib/db";
 
 export const runtime = "nodejs";
@@ -85,6 +86,17 @@ export async function POST(request: Request) {
       await saveScenePrompt({ episodeId, sceneIndex, prompt });
       await clearFinalVideo(episodeId);
       return NextResponse.json({ ok: true, prompt });
+    }
+
+    if (body.action === "restore-original-audio") {
+      const scene = await restoreOriginalSceneAudio(episodeId, sceneIndex);
+      if (!scene)
+        return NextResponse.json(
+          { error: "The original generated scene is not available to restore." },
+          { status: 404 },
+        );
+      await clearFinalVideo(episodeId);
+      return NextResponse.json({ ok: true, scene });
     }
 
     const position = ["top", "middle", "bottom"].includes(body.position)

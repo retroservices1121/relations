@@ -1,5 +1,5 @@
-export type Scene = { duration: number; prompt: string; caption?: string; captionStart?: number; captionEnd?: number; characters?: ("joe" | "danda" | "buddy")[] };
-export type Episode = { id: string; title: string; hook: string; scenes: Scene[] };
+export type Scene = { duration: number; prompt: string; caption?: string; captionStart?: number; captionEnd?: number; characters?: string[] };
+export type Episode = { id: string; title: string; hook: string; scenes: Scene[]; seriesId?: string };
 
 export const episodes: Episode[] = [
  {id:"getting-ready",title:"Getting Ready",hook:"Getting ready to go out as a married couple",scenes:[

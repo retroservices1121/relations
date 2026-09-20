@@ -3,6 +3,8 @@ import {
   rewriteEpisodeWithAi,
   screenplayConfigured,
 } from "@/lib/screenplay";
+import { getSeries } from "@/lib/db";
+import { householdNonsenseSeries } from "@/lib/series";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -38,10 +40,13 @@ export async function POST(request: Request) {
         { error: "The complete current screenplay is required." },
         { status: 400 },
       );
+    const seriesId = text(body.seriesId) || householdNonsenseSeries.id;
+    const series = (await getSeries(seriesId)) || householdNonsenseSeries;
     const revisedScenes = await rewriteEpisodeWithAi({
       episodeTitle: text(body.episodeTitle) || "Untitled Episode",
       revisionNote,
       scenes,
+      series,
     });
     return NextResponse.json({ scenes: revisedScenes });
   } catch (error) {

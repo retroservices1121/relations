@@ -7,7 +7,7 @@ import SpeechInputButton from "./SpeechInputButton";
 
 type Mode = "idea" | "script";
 
-export default function NewEpisodeComposer() {
+export default function NewEpisodeComposer({seriesId="household-nonsense",seriesTitle="Household Nonsense"}:{seriesId?:string;seriesTitle?:string}) {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>("idea");
   const [title, setTitle] = useState("");
@@ -26,7 +26,7 @@ export default function NewEpisodeComposer() {
       const response = await fetch("/api/episodes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode, title, prompt }),
+        body: JSON.stringify({ mode, title, prompt, seriesId }),
       });
       const data = await response.json();
       if (!response.ok)
@@ -44,13 +44,16 @@ export default function NewEpisodeComposer() {
   return (
     <section className={styles.composer}>
       <div className={styles.composerIntro}>
-        <span className={styles.kicker}>New episode</span>
+        <span className={styles.kicker}>New {seriesTitle} episode</span>
         <h2>What happens in this episode?</h2>
         <p>
           The screenplay AI develops your idea into a structured episode with a
           setup, escalation, payoff, continuity locks, and editable production
           scenes before any video credits are spent.
         </p>
+        {seriesId === "household-nonsense" && (
+          <a href="/series">Manage series and create a new one →</a>
+        )}
       </div>
       <div className={styles.modeTabs}>
         <button

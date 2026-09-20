@@ -1,6 +1,8 @@
 import type { Scene } from "../data/episodes";
+import type { SeriesConfig } from "./series";
+import { householdNonsenseSeries } from "./series";
 
-type CharacterKey = "joe" | "danda" | "buddy";
+type CharacterKey = string;
 
 type ScreenplayScene = {
   duration: number;
@@ -60,7 +62,7 @@ const SCREENPLAY_SCHEMA = {
             characters: {
               type: "array",
               minItems: 1,
-              items: { type: "string", enum: ["joe", "danda", "buddy"] },
+              items: { type: "string", minLength: 1, maxLength: 80 },
             },
           },
         },
@@ -108,7 +110,7 @@ const EPISODE_REWRITE_SCHEMA = {
 
 const SYSTEM_PROMPT = `You are the senior animated-series screenwriter, storyboard director, and continuity supervisor inside Relations Studio.
 
-You are writing a short vertical episode for Household Nonsense, a recurring silent 2D relationship-comedy series starring Joe and Danda. Joe is an early-40s man with short dark hair, a neat full beard, and an average slightly stocky everyday-dad build. Danda is an early-40s woman with long dark-brown hair with warm highlights and normal adult proportions. Buddy is their small black-and-white Maltese-like dog.
+You are writing a short vertical episode for the creator's selected recurring animated series. The series bible supplied with the request is authoritative. Use only characters from that series and preserve their stated identities, relationships, format and visual rules.
 
 Turn the creator's premise into an actual episode, not generic filler. Build a clear setup, escalation, payoff, and final visual button. Every scene must earn its place and advance the same story. Preserve the creator's central joke and requested events. Do not introduce a phone, laptop, flashlight, remote, new character, or unrelated prop merely to create motion.
 
@@ -118,11 +120,9 @@ Each video scene is generated separately, so every scene must be independently p
 
 Write simple, achievable animation. Prefer one location and one readable action per scene. Avoid montage unless the creator explicitly asks for one. Use positive physical descriptions for required states. Put prohibited actions and continuity failures in the forbidden field. If a light must stay on, state that it is already on in the first frame and remains the same through the last frame; do not center the wording on switching it off.
 
-The characters do not speak or move their mouths. Dialogue is represented only by the caption field and is added later by Studio. Give every scene one short, useful overlay caption of no more than 90 characters. The captions should form a concise setup, escalation, and punchline when read in order. Do not leave captions blank. Do not put captions, subtitles, speech bubbles, labels, or generated words inside the visual prompt. Keep human mouths closed and visually still. The generated scene should rely on posture, eyes, eyebrows, props, and clear physical action.
+Give every scene one short, useful overlay caption of no more than 90 characters. Do not leave captions blank. Never put captions, subtitles, speech bubbles, labels, or generated words inside the visual prompt. Follow the selected series format: a silent series uses physical acting with closed, visually still mouths; a dialogue series may describe intended dialogue in the caption but still leaves visible text and final voice production to Studio.
 
-Bed and sleep scenes: Joe and Danda are barefoot for the entire scene. No shoes, sneakers, slippers, boots, or sandals on the bed or beneath bedding. Buddy remains a small black-and-white Maltese-like dog.
-
-Everyday household behavior must be believable for the stated time of day. Decorative pillows are arranged on a living-room sofa during daytime, or placed on a bed while making it in the morning; people do not freshly arrange decorative bed pillows immediately before going to sleep unless the creator explicitly makes that contradiction the joke.
+Bed and sleep scenes use believable sleep clothing and no shoes on a bed unless the creator explicitly requires otherwise.
 
 Use 2 to 6 scenes, normally 2 to 4. Use 4 to 12 seconds per scene. Fewer strong scenes are always better than repetitive filler. Return only the requested JSON.`;
 
@@ -130,7 +130,7 @@ function clean(value: unknown, fallback = "") {
   return typeof value === "string" ? value.trim() : fallback;
 }
 
-function parsePlan(value: unknown): ScreenplayPlan {
+function parsePlan(value: unknown, series: SeriesConfig): ScreenplayPlan {
   if (!value || typeof value !== "object")
     throw new Error("The screenplay model returned an invalid plan.");
   const candidate = value as Partial<ScreenplayPlan>;
@@ -144,11 +144,9 @@ function parsePlan(value: unknown): ScreenplayPlan {
     if (!scene || typeof scene !== "object")
       throw new Error(`Scene ${index + 1} is invalid.`);
     const item = scene as Partial<ScreenplayScene>;
+    const allowed = new Set(series.characters.map((character) => character.key));
     const characters = Array.isArray(item.characters)
-      ? item.characters.filter(
-          (key): key is CharacterKey =>
-            key === "joe" || key === "danda" || key === "buddy",
-        )
+      ? item.characters.map((key) => clean(key)).filter((key): key is CharacterKey => allowed.has(key))
       : [];
     const parsed: ScreenplayScene = {
       duration: Math.max(
@@ -178,7 +176,7 @@ function parsePlan(value: unknown): ScreenplayPlan {
   });
   return {
     title: clean(candidate.title, "Untitled Episode"),
-    hook: clean(candidate.hook, "A new Household Nonsense episode"),
+    hook: clean(candidate.hook, `A new ${series.title} episode`),
     scenes,
   };
 }
@@ -187,10 +185,14 @@ function compileScene(
   scene: ScreenplayScene,
   index: number,
   total: number,
+  series: SeriesConfig,
 ): Scene {
   const characterNames = scene.characters
-    .map((key) => (key === "joe" ? "Joe" : key === "danda" ? "Danda" : "Buddy"))
+    .map((key) => series.characters.find((character) => character.key === key)?.name || key)
     .join(" and ");
+  const audioText = series.format === "silent"
+    ? "Silent physical acting only. Every human mouth remains closed and visually still. No dialogue, narration, vocalization, lip sync, generated caption, subtitle, speech bubble, sign, or other on-screen text. Studio adds the caption later."
+    : "Use natural visual acting appropriate to the intended dialogue, but do not generate readable captions, subtitles, speech bubbles, signs, or other on-screen text. Studio adds dialogue, voices, and captions later.";
   const prompt = `PRODUCTION SCENE ${index + 1} OF ${total}
 
 STORY BEAT:
@@ -218,7 +220,7 @@ CAMERA / COMPOSITION:
 One clear vertical 9:16 shot. Use a stable medium-wide or medium composition that shows the full story action and all story-critical props. Keep camera movement minimal. No cinematic improvisation, montage insert, dramatic lighting effect, or unrelated cutaway.
 
 AUDIO / TEXT:
-Silent physical acting only. Every human mouth remains closed and visually still. No dialogue, narration, vocalization, lip sync, generated caption, subtitle, speech bubble, sign, or other on-screen text. Studio adds the caption later.`;
+${audioText}`;
   return {
     duration: scene.duration,
     prompt,
@@ -246,6 +248,7 @@ function screenplayModel() {
 export async function writeEpisodeScreenplay(input: {
   premise: string;
   mode: "idea" | "script";
+  series?: SeriesConfig;
 }): Promise<{ title: string; hook: string; scenes: Scene[] }> {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey)
@@ -253,6 +256,7 @@ export async function writeEpisodeScreenplay(input: {
       "OPENAI_API_KEY is not configured. Relations requires the screenplay AI to create an episode plan.",
     );
   const model = screenplayModel();
+  const series = input.series || householdNonsenseSeries;
   const instruction =
     input.mode === "script"
       ? "Adapt the creator-provided script into production scenes. Preserve its plot, scene order, joke, and ending. Improve only clarity, animation blocking, and continuity."
@@ -272,7 +276,7 @@ export async function writeEpisodeScreenplay(input: {
           { role: "system", content: SYSTEM_PROMPT },
           {
             role: "user",
-            content: `${instruction}\n\nCREATOR INPUT:\n${input.premise}`,
+            content: `${instruction}\n\nSELECTED SERIES BIBLE:\nTitle: ${series.title}\nDescription: ${series.description}\nFormat: ${series.format}\nVisual style: ${series.visualStyle}\nScreenplay rules: ${series.screenplayRules}\nAllowed cast:\n${series.characters.map((character) => `- key=${character.key}; name=${character.name}; ${character.description}`).join("\n")}\nIn every characters array, use the exact key values listed above, never display names.\n\nCREATOR INPUT:\n${input.premise}`,
           },
         ],
         response_format: {
@@ -295,12 +299,12 @@ export async function writeEpisodeScreenplay(input: {
     const content = data?.choices?.[0]?.message?.content;
     if (!content)
       throw new Error("The screenplay AI returned no episode plan.");
-    const plan = parsePlan(JSON.parse(content));
+    const plan = parsePlan(JSON.parse(content), series);
     return {
       title: plan.title,
       hook: plan.hook,
       scenes: plan.scenes.map((scene, index) =>
-        compileScene(scene, index, plan.scenes.length),
+        compileScene(scene, index, plan.scenes.length, series),
       ),
     };
   } catch (error) {
@@ -326,6 +330,7 @@ export async function rewriteSceneWithAi(input: {
   previousPrompt?: string;
   nextPrompt?: string;
   revisionNote: string;
+  series?: SeriesConfig;
 }) {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey)
@@ -335,7 +340,16 @@ export async function rewriteSceneWithAi(input: {
   const model = screenplayModel();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 90000);
-  const userPrompt = `EPISODE: ${input.episodeTitle}
+  const series = input.series || householdNonsenseSeries;
+  const userPrompt = `SELECTED SERIES BIBLE:
+Title: ${series.title}
+Description: ${series.description}
+Format: ${series.format}
+Visual style: ${series.visualStyle}
+Screenplay rules: ${series.screenplayRules}
+Allowed cast: ${series.characters.map((character) => `${character.name} (${character.description})`).join("; ")}
+
+EPISODE: ${input.episodeTitle}
 SCENE: ${input.sceneIndex + 1} of ${input.totalScenes}
 
 CREATOR'S REQUIRED REVISION:
@@ -410,6 +424,7 @@ export async function rewriteEpisodeWithAi(input: {
   episodeTitle: string;
   revisionNote: string;
   scenes: Array<{ prompt: string; caption: string }>;
+  series?: SeriesConfig;
 }) {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey)
@@ -419,13 +434,22 @@ export async function rewriteEpisodeWithAi(input: {
   const model = screenplayModel();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 90000);
+  const series = input.series || householdNonsenseSeries;
   const currentScript = input.scenes
     .map(
       (scene, index) =>
         `SCENE ${index + 1}\nCAPTION: ${scene.caption}\n${scene.prompt}`,
     )
     .join("\n\n---\n\n");
-  const userPrompt = `EPISODE: ${input.episodeTitle}
+  const userPrompt = `SELECTED SERIES BIBLE:
+Title: ${series.title}
+Description: ${series.description}
+Format: ${series.format}
+Visual style: ${series.visualStyle}
+Screenplay rules: ${series.screenplayRules}
+Allowed cast: ${series.characters.map((character) => `${character.name} (${character.description})`).join("; ")}
+
+EPISODE: ${input.episodeTitle}
 
 CREATOR'S REQUIRED EPISODE-WIDE REVISION:
 ${input.revisionNote}

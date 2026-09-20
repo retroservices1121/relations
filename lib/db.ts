@@ -1,5 +1,7 @@
 import { Pool } from "pg";
 import type { Episode, Scene } from "../data/episodes";
+import type { SeriesConfig } from "./series";
+import { householdNonsenseSeries } from "./series";
 
 declare global {
   var relationsPool: Pool | undefined;
@@ -30,6 +32,11 @@ export async function ensureSchema() {
       await db.query(
         `CREATE TABLE IF NOT EXISTS relations_custom_episodes (episode_id TEXT PRIMARY KEY,title TEXT NOT NULL,hook TEXT NOT NULL DEFAULT '',source_prompt TEXT NOT NULL DEFAULT '',input_mode TEXT NOT NULL DEFAULT 'idea',scenes JSONB NOT NULL DEFAULT '[]'::jsonb,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());`,
       );
+      await db.query(`CREATE TABLE IF NOT EXISTS relations_series (series_id TEXT PRIMARY KEY,title TEXT NOT NULL,description TEXT NOT NULL DEFAULT '',visual_style TEXT NOT NULL DEFAULT '',screenplay_rules TEXT NOT NULL DEFAULT '',format TEXT NOT NULL DEFAULT 'silent',music_mode TEXT NOT NULL DEFAULT 'none',locked BOOLEAN NOT NULL DEFAULT FALSE,characters JSONB NOT NULL DEFAULT '[]'::jsonb,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());`);
+      await db.query(`ALTER TABLE relations_custom_episodes ADD COLUMN IF NOT EXISTS series_id TEXT NOT NULL DEFAULT 'household-nonsense';`);
+      for (const series of [householdNonsenseSeries]) {
+        await db.query(`INSERT INTO relations_series (series_id,title,description,visual_style,screenplay_rules,format,music_mode,locked,characters) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb) ON CONFLICT (series_id) DO NOTHING`,[series.id,series.title,series.description,series.visualStyle,series.screenplayRules,series.format,series.musicMode,series.locked,JSON.stringify(series.characters)]);
+      }
       await db.query(
         `CREATE TABLE IF NOT EXISTS relations_scenes (episode_id TEXT NOT NULL, scene_index INTEGER NOT NULL, video_url TEXT, source_video_url TEXT, request_id TEXT,persisted BOOLEAN NOT NULL DEFAULT FALSE, overlay_text TEXT NOT NULL DEFAULT '', overlay_position TEXT NOT NULL DEFAULT 'bottom',overlay_start DOUBLE PRECISION NOT NULL DEFAULT 0, overlay_end DOUBLE PRECISION NOT NULL DEFAULT 0, scene_prompt TEXT,updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY (episode_id, scene_index));`,
       );
@@ -58,11 +65,12 @@ export async function createCustomEpisode(input: {
   sourcePrompt: string;
   inputMode: string;
   scenes: Scene[];
+  seriesId?: string;
 }) {
   await ensureSchema();
   const id = `custom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
   await pool().query(
-    `INSERT INTO relations_custom_episodes (episode_id,title,hook,source_prompt,input_mode,scenes) VALUES ($1,$2,$3,$4,$5,$6::jsonb)`,
+    `INSERT INTO relations_custom_episodes (episode_id,title,hook,source_prompt,input_mode,scenes,series_id) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7)`,
     [
       id,
       input.title,
@@ -70,6 +78,7 @@ export async function createCustomEpisode(input: {
       input.sourcePrompt,
       input.inputMode,
       JSON.stringify(input.scenes),
+      input.seriesId || "household-nonsense",
     ],
   );
   return {
@@ -77,24 +86,26 @@ export async function createCustomEpisode(input: {
     title: input.title,
     hook: input.hook,
     scenes: input.scenes,
+    seriesId: input.seriesId || "household-nonsense",
   } satisfies Episode;
 }
 export async function listCustomEpisodes(): Promise<Episode[]> {
   await ensureSchema();
   const result = await pool().query(
-    `SELECT episode_id,title,hook,scenes FROM relations_custom_episodes ORDER BY created_at DESC`,
+    `SELECT episode_id,title,hook,scenes,series_id FROM relations_custom_episodes ORDER BY created_at DESC`,
   );
   return result.rows.map((row) => ({
     id: String(row.episode_id),
     title: String(row.title),
     hook: String(row.hook || ""),
     scenes: Array.isArray(row.scenes) ? row.scenes : [],
+    seriesId: String(row.series_id || "household-nonsense"),
   }));
 }
 export async function getCustomEpisode(id: string): Promise<Episode | null> {
   await ensureSchema();
   const result = await pool().query(
-    `SELECT episode_id,title,hook,scenes FROM relations_custom_episodes WHERE episode_id=$1`,
+    `SELECT episode_id,title,hook,scenes,series_id FROM relations_custom_episodes WHERE episode_id=$1`,
     [id],
   );
   const row = result.rows[0];
@@ -104,9 +115,17 @@ export async function getCustomEpisode(id: string): Promise<Episode | null> {
         title: String(row.title),
         hook: String(row.hook || ""),
         scenes: Array.isArray(row.scenes) ? row.scenes : [],
+        seriesId: String(row.series_id || "household-nonsense"),
       }
     : null;
 }
+
+function mapSeries(row: Record<string, unknown>): SeriesConfig {
+  return { id:String(row.series_id),title:String(row.title),description:String(row.description||""),visualStyle:String(row.visual_style||""),screenplayRules:String(row.screenplay_rules||""),format:row.format==="dialogue"?"dialogue":"silent",musicMode:row.music_mode==="household-theme"?"household-theme":"none",locked:Boolean(row.locked),characters:Array.isArray(row.characters)?row.characters as SeriesConfig["characters"]:[] };
+}
+export async function listSeries() { await ensureSchema(); const result=await pool().query(`SELECT * FROM relations_series ORDER BY locked DESC,created_at`); return result.rows.map(mapSeries); }
+export async function getSeries(id:string) { await ensureSchema(); const result=await pool().query(`SELECT * FROM relations_series WHERE series_id=$1`,[id]); return result.rows[0]?mapSeries(result.rows[0]):null; }
+export async function saveSeries(input:SeriesConfig) { await ensureSchema(); await pool().query(`INSERT INTO relations_series (series_id,title,description,visual_style,screenplay_rules,format,music_mode,locked,characters,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,NOW()) ON CONFLICT (series_id) DO UPDATE SET title=EXCLUDED.title,description=EXCLUDED.description,visual_style=EXCLUDED.visual_style,screenplay_rules=EXCLUDED.screenplay_rules,format=EXCLUDED.format,music_mode=EXCLUDED.music_mode,characters=EXCLUDED.characters,updated_at=NOW() WHERE relations_series.locked=FALSE`,[input.id,input.title,input.description,input.visualStyle,input.screenplayRules,input.format,input.musicMode,input.locked,JSON.stringify(input.characters)]); return getSeries(input.id); }
 export async function saveGenerationRequest(input: {
   requestId: string;
   model: string;
@@ -175,6 +194,21 @@ export async function saveSceneVideo(input: {
       input.themeBaked ?? false,
     ],
   );
+}
+export async function restoreOriginalSceneAudio(
+  episodeId: string,
+  sceneIndex: number,
+) {
+  await ensureSchema();
+  const result = await pool().query(
+    `UPDATE relations_scenes
+     SET video_url=source_video_url,theme_baked=FALSE,updated_at=NOW()
+     WHERE episode_id=$1 AND scene_index=$2
+       AND source_video_url IS NOT NULL AND source_video_url <> ''
+     RETURNING video_url,source_video_url,request_id,persisted,theme_baked`,
+    [episodeId, sceneIndex],
+  );
+  return result.rows[0] || null;
 }
 export async function saveOverlay(input: {
   episodeId: string;
