@@ -1,4 +1,5 @@
 "use client";
+import NarrationPanel from "./NarrationPanel";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Episode } from "../data/episodes";
@@ -151,6 +152,7 @@ export default function EpisodeWorkspace({ episode, series = householdNonsenseSe
   const [balance, setBalance] = useState<number | null>(null);
   const [balanceError, setBalanceError] = useState("");
   const [projectLoaded, setProjectLoaded] = useState(false);
+  const [narrationReady,setNarrationReady]=useState(false);
   const [renderingFinal, setRenderingFinal] = useState(false);
   const [finalUrl, setFinalUrl] = useState("");
   const [finalError, setFinalError] = useState("");
@@ -544,7 +546,7 @@ export default function EpisodeWorkspace({ episode, series = householdNonsenseSe
           seriesFormat: series.format,
           seriesVisualStyle: series.visualStyle,
           seriesRules: series.screenplayRules,
-          prompt: `Use only the approved recurring character assets required for this scene. ${referenceMap} Preserve each referenced identity exactly. Do not introduce a recurring character who is not listed for this scene. SERIES VISUAL STYLE: ${series.visualStyle} SERIES RULES: ${series.screenplayRules} Vertical 9:16 animated-series episode. Scene action: ${prompt}`,
+          prompt: `Use only the approved recurring character assets required for this scene. ${referenceMap} Preserve each referenced identity exactly. Do not introduce a recurring character who is not listed for this scene. SERIES VISUAL STYLE: ${series.visualStyle} SERIES RULES: ${series.screenplayRules} ${series.aspectRatio === "16:9" ? "Landscape 16:9" : "Vertical 9:16"} series episode. Scene action: ${prompt}`,
         }),
       });
       const data = await response.json();
@@ -914,6 +916,7 @@ export default function EpisodeWorkspace({ episode, series = householdNonsenseSe
     [episode.scenes, sceneStates],
   );
   async function buildFinalVideo() {
+    if(series.format === "narrated" && !narrationReady){setFinalError("Save narration changes and generate all non-empty lines first.");return;}
     if (!allScenesReady) {
       setFinalError(
         "Generate and permanently save every scene before building the final episode.",
@@ -939,7 +942,7 @@ export default function EpisodeWorkspace({ episode, series = householdNonsenseSe
       const response = await fetch("/api/render-episode", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ episodeId: episode.id, scenes, musicMode: series.musicMode }),
+        body: JSON.stringify({ episodeId: episode.id, scenes, musicMode: series.musicMode, seriesId: series.id }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Final render failed");
@@ -1181,7 +1184,7 @@ export default function EpisodeWorkspace({ episode, series = householdNonsenseSe
                 </div>
               </div>
               {state.videoUrl && (
-                <ScenePreview videoUrl={state.videoUrl} overlay={overlay} />
+                <div className={series.aspectRatio === "16:9" ? "landscapePreview" : ""}><ScenePreview videoUrl={state.videoUrl} overlay={overlay} /></div>
               )}{" "}
               {state.status === "queued" && (
                 <p className="statusText">
@@ -1328,6 +1331,7 @@ export default function EpisodeWorkspace({ episode, series = householdNonsenseSe
       <section className="finalBuilder">
         <span className="eyebrow">EPISODE AUDIO</span>
         <h2>{series.title} audio</h2>
+        {series.format === "narrated" && <NarrationPanel episode={episode} onChange={()=>setFinalUrl("")} onReady={setNarrationReady} />}
         <p>
           AI sound effects replace the current scene audio while preserving the
           approved visuals. The audio model can occasionally invent unwanted
@@ -1387,7 +1391,7 @@ export default function EpisodeWorkspace({ episode, series = householdNonsenseSe
             <p className="savedText">
               ✓ Final episode saved permanently to R2 + Railway Postgres
             </p>
-            <video className="finalVideo" src={finalUrl} controls playsInline />
+            <video className="finalVideo" style={series.aspectRatio === "16:9" ? {aspectRatio:"16 / 9",maxWidth:960,objectFit:"contain"} : undefined} src={finalUrl} controls playsInline />
             <p className="statusText">
               Exports are H.264/AAC MP4 with mobile-compatible yuv420p video.
             </p>

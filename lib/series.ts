@@ -11,7 +11,8 @@ export type SeriesConfig = {
   description: string;
   visualStyle: string;
   screenplayRules: string;
-  format: "silent" | "dialogue";
+  format: "silent" | "dialogue" | "narrated";
+  aspectRatio?: "9:16" | "16:9";
   musicMode: "household-theme" | "none";
   locked: boolean;
   characters: SeriesCharacter[];

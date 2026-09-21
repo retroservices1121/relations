@@ -5,6 +5,7 @@ import { householdNonsenseSeries } from "./series";
 type CharacterKey = string;
 
 type ScreenplayScene = {
+  narration: string;
   duration: number;
   storyBeat: string;
   startState: string;
@@ -42,6 +43,7 @@ const SCREENPLAY_SCHEMA = {
           required: [
             "duration",
             "storyBeat",
+            "narration",
             "startState",
             "action",
             "endState",
@@ -53,6 +55,7 @@ const SCREENPLAY_SCHEMA = {
           properties: {
             duration: { type: "integer", minimum: 4, maximum: 12 },
             storyBeat: { type: "string", minLength: 1 },
+            narration: { type: "string", maxLength: 1000 },
             startState: { type: "string", minLength: 1 },
             action: { type: "string", minLength: 1 },
             endState: { type: "string", minLength: 1 },
@@ -110,7 +113,7 @@ const EPISODE_REWRITE_SCHEMA = {
 
 const SYSTEM_PROMPT = `You are the senior animated-series screenwriter, storyboard director, and continuity supervisor inside Relations Studio.
 
-You are writing a short vertical episode for the creator's selected recurring animated series. The series bible supplied with the request is authoritative. Use only characters from that series and preserve their stated identities, relationships, format and visual rules.
+You are writing a short episode in the aspect ratio specified by the series bible for the creator's selected recurring animated series. The series bible supplied with the request is authoritative. Use only characters from that series and preserve their stated identities, relationships, format and visual rules.
 
 Turn the creator's premise into an actual episode, not generic filler. Build a clear setup, escalation, payoff, and final visual button. Every scene must earn its place and advance the same story. Preserve the creator's central joke and requested events. Do not introduce a phone, laptop, flashlight, remote, new character, or unrelated prop merely to create motion.
 
@@ -119,6 +122,8 @@ Choose the fewest scenes that tell the joke clearly. Every scene must have a dif
 Each video scene is generated separately, so every scene must be independently production-ready while maintaining exact continuity with the previous scene. Explicitly state the first frame, visible action in chronological order, and final frame. Repeat story-critical room layout, wardrobe, positions, prop states, lighting state, and character sides whenever they must remain unchanged. Never use vague phrases such as “continue the scene,” “as before,” or “the situation escalates” without spelling out what is visible.
 
 Write simple, achievable animation. Prefer one location and one readable action per scene. Avoid montage unless the creator explicitly asks for one. Use positive physical descriptions for required states. Put prohibited actions and continuity failures in the forbidden field. If a light must stay on, state that it is already on in the first frame and remains the same through the last frame; do not center the wording on switching it off.
+
+For narrated series, supply a separate narration string per scene, preserving supplied voiceover verbatim when possible. Budget roughly two spoken words per second with breathing room. Narration is offscreen: keep visible mouths still, never embed narration in visual prompts or replace captions with it. For other formats return an empty narration string.
 
 Give every scene one short, useful overlay caption of no more than 90 characters. Do not leave captions blank. Never put captions, subtitles, speech bubbles, labels, or generated words inside the visual prompt. Follow the selected series format: a silent series uses physical acting with closed, visually still mouths; a dialogue series may describe intended dialogue in the caption but still leaves visible text and final voice production to Studio.
 
@@ -154,6 +159,7 @@ function parsePlan(value: unknown, series: SeriesConfig): ScreenplayPlan {
         Math.min(12, Math.round(Number(item.duration) || 5)),
       ),
       storyBeat: clean(item.storyBeat),
+      narration: series.format === "narrated" ? clean(item.narration) : "",
       startState: clean(item.startState),
       action: clean(item.action),
       endState: clean(item.endState),
@@ -190,7 +196,7 @@ function compileScene(
   const characterNames = scene.characters
     .map((key) => series.characters.find((character) => character.key === key)?.name || key)
     .join(" and ");
-  const audioText = series.format === "silent"
+  const audioText = (series.format === "silent" || series.format === "narrated")
     ? "Silent physical acting only. Every human mouth remains closed and visually still. No dialogue, narration, vocalization, lip sync, generated caption, subtitle, speech bubble, sign, or other on-screen text. Studio adds the caption later."
     : "Use natural visual acting appropriate to the intended dialogue, but do not generate readable captions, subtitles, speech bubbles, signs, or other on-screen text. Studio adds dialogue, voices, and captions later.";
   const prompt = `PRODUCTION SCENE ${index + 1} OF ${total}
@@ -217,12 +223,13 @@ FORBIDDEN ACTIONS / ERRORS:
 ${scene.forbidden}
 
 CAMERA / COMPOSITION:
-One clear vertical 9:16 shot. Use a stable medium-wide or medium composition that shows the full story action and all story-critical props. Keep camera movement minimal. No cinematic improvisation, montage insert, dramatic lighting effect, or unrelated cutaway.
+One clear ${series.aspectRatio === "16:9" ? "landscape 16:9" : "vertical 9:16"} shot. Use a stable medium-wide or medium composition that shows the full story action and all story-critical props. Keep camera movement minimal. No cinematic improvisation, montage insert, dramatic lighting effect, or unrelated cutaway.
 
 AUDIO / TEXT:
 ${audioText}`;
   return {
     duration: scene.duration,
+    narration: scene.narration,
     prompt,
     caption: scene.caption,
     captionStart: scene.caption ? 0.4 : undefined,
@@ -276,7 +283,7 @@ export async function writeEpisodeScreenplay(input: {
           { role: "system", content: SYSTEM_PROMPT },
           {
             role: "user",
-            content: `${instruction}\n\nSELECTED SERIES BIBLE:\nTitle: ${series.title}\nDescription: ${series.description}\nFormat: ${series.format}\nVisual style: ${series.visualStyle}\nScreenplay rules: ${series.screenplayRules}\nAllowed cast:\n${series.characters.map((character) => `- key=${character.key}; name=${character.name}; ${character.description}`).join("\n")}\nIn every characters array, use the exact key values listed above, never display names.\n\nCREATOR INPUT:\n${input.premise}`,
+            content: `${instruction}\n\nSELECTED SERIES BIBLE:\nTitle: ${series.title}\nDescription: ${series.description}\nFormat: ${series.format} Aspect ratio: ${series.aspectRatio || "9:16"}\nVisual style: ${series.visualStyle}\nScreenplay rules: ${series.screenplayRules}\nAllowed cast:\n${series.characters.map((character) => `- key=${character.key}; name=${character.name}; ${character.description}`).join("\n")}\nIn every characters array, use the exact key values listed above, never display names.\n\nCREATOR INPUT:\n${input.premise}`,
           },
         ],
         response_format: {
@@ -344,7 +351,7 @@ export async function rewriteSceneWithAi(input: {
   const userPrompt = `SELECTED SERIES BIBLE:
 Title: ${series.title}
 Description: ${series.description}
-Format: ${series.format}
+Format: ${series.format} Aspect ratio: ${series.aspectRatio || "9:16"}
 Visual style: ${series.visualStyle}
 Screenplay rules: ${series.screenplayRules}
 Allowed cast: ${series.characters.map((character) => `${character.name} (${character.description})`).join("; ")}
@@ -444,7 +451,7 @@ export async function rewriteEpisodeWithAi(input: {
   const userPrompt = `SELECTED SERIES BIBLE:
 Title: ${series.title}
 Description: ${series.description}
-Format: ${series.format}
+Format: ${series.format} Aspect ratio: ${series.aspectRatio || "9:16"}
 Visual style: ${series.visualStyle}
 Screenplay rules: ${series.screenplayRules}
 Allowed cast: ${series.characters.map((character) => `${character.name} (${character.description})`).join("; ")}

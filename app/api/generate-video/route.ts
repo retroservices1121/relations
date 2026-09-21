@@ -1,3 +1,4 @@
+import { getSeries } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { fal } from "@fal-ai/client";
 import { saveGenerationRequest } from "@/lib/db";
@@ -66,7 +67,7 @@ function genericVisualDirection(input: {
   rules: string;
   format: string;
 }) {
-  const performanceRule = input.format === "silent"
+  const performanceRule = (input.format === "silent" || input.format === "narrated")
     ? "This is a silent series. All human mouths stay closed and visually still. Generate no voices, speech-like sounds, narration, singing, or vocal reactions."
     : "Do not generate readable on-screen text. Dialogue, final voices, and captions are added later in Studio; avoid invented or garbled speech.";
   return `FINAL SERIES DIRECTION OVERRIDES CONFLICTING STYLE LANGUAGE BELOW.
@@ -168,6 +169,9 @@ export async function POST(request: Request) {
       duration = 5,
       model = "seedance-fast",
     } = body;
+    const selectedSeries = seriesId === "household-nonsense" ? null : await getSeries(seriesId);
+    if (seriesId !== "household-nonsense" && !selectedSeries) throw new Error("Series not found.");
+    const outputAspect = selectedSeries?.aspectRatio || "9:16";
     if (!prompt || typeof prompt !== "string")
       return NextResponse.json(
         { error: "A scene prompt is required." },
@@ -228,10 +232,10 @@ export async function POST(request: Request) {
     const descriptionMap = characterDescriptions && typeof characterDescriptions === "object" ? characterDescriptions as Record<string, string> : {};
     const visualDirection = isHouseholdNonsense
       ? HOUSEHOLD_VISUAL_DIRECTION
-      : genericVisualDirection({ visualStyle: String(seriesVisualStyle || ""), rules: String(seriesRules || ""), format: String(seriesFormat || "silent") });
-    const lockedPrompt = `${visualDirection}\n\n${characterReferenceLock(safeCharacterKeys, nameMap, descriptionMap)}${bedSleepPrompt}\n\nSCENE INSTRUCTIONS:\n${prompt}${lightPassPrompt}`;
+      : genericVisualDirection({ visualStyle: selectedSeries?.visualStyle || String(seriesVisualStyle || ""), rules: selectedSeries?.screenplayRules || String(seriesRules || ""), format: selectedSeries?.format || String(seriesFormat || "silent") });
+    const lockedPrompt = `OUTPUT COMPOSITION: ${outputAspect === "16:9" ? "landscape 16:9" : "portrait 9:16"}. This overrides conflicting aspect ratios. ${visualDirection}\n\n${characterReferenceLock(safeCharacterKeys, nameMap, descriptionMap)}${bedSleepPrompt}\n\nSCENE INSTRUCTIONS:\n${prompt}${lightPassPrompt}`;
     const isMusicalScene = prompt.includes("MUSICAL TIMING TARGET:");
-    const generationAudioDisabled = isMusicalScene || seriesFormat === "dialogue";
+    const generationAudioDisabled = isMusicalScene || seriesFormat === "dialogue" || selectedSeries?.format === "narrated";
 
     if (usingHiggsfield) {
       const response = await fetch(
@@ -248,7 +252,7 @@ export async function POST(request: Request) {
             image_urls: imageUrls.slice(0, safeCharacterKeys.length),
             duration: safeDuration,
             resolution: "720p",
-            aspect_ratio: "9:16",
+            aspect_ratio: outputAspect,
             output_format: "mp4",
             generate_audio: !generationAudioDisabled,
           }),
@@ -289,7 +293,7 @@ export async function POST(request: Request) {
         image_urls: imageUrls.slice(0, safeCharacterKeys.length),
         resolution: "720p",
         duration: String(safeDuration),
-        aspect_ratio: "9:16",
+        aspect_ratio: outputAspect,
         generate_audio: !generationAudioDisabled,
         bitrate_mode: "standard",
       },

@@ -10,7 +10,7 @@ declare global {
 export function dbConfigured() {
   return Boolean(process.env.DATABASE_URL);
 }
-function pool() {
+export function pool() {
   if (!process.env.DATABASE_URL)
     throw new Error("DATABASE_URL is not configured.");
   if (!global.relationsPool)
@@ -34,6 +34,8 @@ export async function ensureSchema() {
       );
       await db.query(`CREATE TABLE IF NOT EXISTS relations_series (series_id TEXT PRIMARY KEY,title TEXT NOT NULL,description TEXT NOT NULL DEFAULT '',visual_style TEXT NOT NULL DEFAULT '',screenplay_rules TEXT NOT NULL DEFAULT '',format TEXT NOT NULL DEFAULT 'silent',music_mode TEXT NOT NULL DEFAULT 'none',locked BOOLEAN NOT NULL DEFAULT FALSE,characters JSONB NOT NULL DEFAULT '[]'::jsonb,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());`);
       await db.query(`ALTER TABLE relations_custom_episodes ADD COLUMN IF NOT EXISTS series_id TEXT NOT NULL DEFAULT 'household-nonsense';`);
+      await db.query(`ALTER TABLE relations_series ADD COLUMN IF NOT EXISTS aspect_ratio TEXT NOT NULL DEFAULT '9:16'`);
+      await db.query(`CREATE TABLE IF NOT EXISTS relations_narration (episode_id TEXT NOT NULL,scene_index INTEGER NOT NULL,text TEXT NOT NULL DEFAULT '',voice TEXT NOT NULL DEFAULT 'onyx',url TEXT NOT NULL DEFAULT '',duration DOUBLE PRECISION NOT NULL DEFAULT 0,PRIMARY KEY (episode_id,scene_index))`);
       for (const series of [householdNonsenseSeries]) {
         await db.query(`INSERT INTO relations_series (series_id,title,description,visual_style,screenplay_rules,format,music_mode,locked,characters) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb) ON CONFLICT (series_id) DO NOTHING`,[series.id,series.title,series.description,series.visualStyle,series.screenplayRules,series.format,series.musicMode,series.locked,JSON.stringify(series.characters)]);
       }
@@ -121,11 +123,11 @@ export async function getCustomEpisode(id: string): Promise<Episode | null> {
 }
 
 function mapSeries(row: Record<string, unknown>): SeriesConfig {
-  return { id:String(row.series_id),title:String(row.title),description:String(row.description||""),visualStyle:String(row.visual_style||""),screenplayRules:String(row.screenplay_rules||""),format:row.format==="dialogue"?"dialogue":"silent",musicMode:row.music_mode==="household-theme"?"household-theme":"none",locked:Boolean(row.locked),characters:Array.isArray(row.characters)?row.characters as SeriesConfig["characters"]:[] };
+  return { id:String(row.series_id),title:String(row.title),description:String(row.description||""),visualStyle:String(row.visual_style||""),screenplayRules:String(row.screenplay_rules||""),aspectRatio:row.aspect_ratio==="16:9"?"16:9":"9:16",format:row.format==="narrated"?"narrated":row.format==="dialogue"?"dialogue":"silent",musicMode:row.music_mode==="household-theme"?"household-theme":"none",locked:Boolean(row.locked),characters:Array.isArray(row.characters)?row.characters as SeriesConfig["characters"]:[] };
 }
 export async function listSeries() { await ensureSchema(); const result=await pool().query(`SELECT * FROM relations_series ORDER BY locked DESC,created_at`); return result.rows.map(mapSeries); }
 export async function getSeries(id:string) { await ensureSchema(); const result=await pool().query(`SELECT * FROM relations_series WHERE series_id=$1`,[id]); return result.rows[0]?mapSeries(result.rows[0]):null; }
-export async function saveSeries(input:SeriesConfig) { await ensureSchema(); await pool().query(`INSERT INTO relations_series (series_id,title,description,visual_style,screenplay_rules,format,music_mode,locked,characters,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,NOW()) ON CONFLICT (series_id) DO UPDATE SET title=EXCLUDED.title,description=EXCLUDED.description,visual_style=EXCLUDED.visual_style,screenplay_rules=EXCLUDED.screenplay_rules,format=EXCLUDED.format,music_mode=EXCLUDED.music_mode,characters=EXCLUDED.characters,updated_at=NOW() WHERE relations_series.locked=FALSE`,[input.id,input.title,input.description,input.visualStyle,input.screenplayRules,input.format,input.musicMode,input.locked,JSON.stringify(input.characters)]); return getSeries(input.id); }
+export async function saveSeries(input:SeriesConfig) { await ensureSchema(); await pool().query(`INSERT INTO relations_series (series_id,title,description,visual_style,screenplay_rules,format,music_mode,locked,characters,aspect_ratio,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,NOW()) ON CONFLICT (series_id) DO UPDATE SET title=EXCLUDED.title,description=EXCLUDED.description,visual_style=EXCLUDED.visual_style,screenplay_rules=EXCLUDED.screenplay_rules,format=EXCLUDED.format,music_mode=EXCLUDED.music_mode,characters=EXCLUDED.characters,aspect_ratio=EXCLUDED.aspect_ratio,updated_at=NOW() WHERE relations_series.locked=FALSE`,[input.id,input.title,input.description,input.visualStyle,input.screenplayRules,input.format,input.musicMode,input.locked,JSON.stringify(input.characters),input.aspectRatio||"9:16"]); return getSeries(input.id); }
 export async function saveGenerationRequest(input: {
   requestId: string;
   model: string;

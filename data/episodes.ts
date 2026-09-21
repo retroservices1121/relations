@@ -1,4 +1,4 @@
-export type Scene = { duration: number; prompt: string; caption?: string; captionStart?: number; captionEnd?: number; characters?: string[] };
+export type Scene = { narration?: string; duration: number; prompt: string; caption?: string; captionStart?: number; captionEnd?: number; characters?: string[] };
 export type Episode = { id: string; title: string; hook: string; scenes: Scene[]; seriesId?: string };
 
 export const episodes: Episode[] = [
