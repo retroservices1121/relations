@@ -21,7 +21,7 @@ export type SeriesConfig = {
 export const householdNonsenseSeries: SeriesConfig = {
   id: "household-nonsense",
   title: "Household Nonsense",
-  description: "Silent animated relationship comedy starring Joe and Danda.",
+  description: "Silent animated relationship comedy starring Joe, Danda, and their family.",
   visualStyle:
     "Simple flat hand-drawn 2D internet cartoon comedy with thick clean outlines, solid colors, readable uncluttered household backgrounds, exaggerated expressions and limited-animation physical acting.",
   screenplayRules:
@@ -32,6 +32,8 @@ export const householdNonsenseSeries: SeriesConfig = {
   characters: [
     { key: "joe", name: "Joe", description: "Early-40s man with short dark hair, a neat full beard, and an average slightly stocky everyday-dad build." },
     { key: "danda", name: "Danda", description: "Early-40s woman with long dark-brown hair with warm highlights and normal adult proportions." },
+    { key: "raquel", name: "Raquel", description: "Joe and Danda's young-adult daughter with shoulder-length dark-brown hair, softly curled ends, a warm complexion, and a witty, observant personality." },
+    { key: "daniel", name: "Daniel", description: "Joe and Danda's young-adult son with short dense curly black hair, a light mustache and small chin beard, a slim build, and a relaxed, quietly sarcastic personality." },
     { key: "buddy", name: "Buddy", description: "Small black-and-white Maltese-like dog." },
   ],
 };

@@ -39,6 +39,17 @@ export async function ensureSchema() {
       for (const series of [householdNonsenseSeries]) {
         await db.query(`INSERT INTO relations_series (series_id,title,description,visual_style,screenplay_rules,format,music_mode,locked,characters) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb) ON CONFLICT (series_id) DO NOTHING`,[series.id,series.title,series.description,series.visualStyle,series.screenplayRules,series.format,series.musicMode,series.locked,JSON.stringify(series.characters)]);
       }
+      // Household Nonsense is intentionally locked in the UI, so keep its
+      // canonical cast synchronized here when permanent characters are added.
+      // Approved image URLs remain stored per browser in the reference panel.
+      await db.query(
+        `UPDATE relations_series SET description=$2,characters=$3::jsonb,updated_at=NOW() WHERE series_id=$1 AND locked=TRUE`,
+        [
+          householdNonsenseSeries.id,
+          householdNonsenseSeries.description,
+          JSON.stringify(householdNonsenseSeries.characters),
+        ],
+      );
       await db.query(
         `CREATE TABLE IF NOT EXISTS relations_scenes (episode_id TEXT NOT NULL, scene_index INTEGER NOT NULL, video_url TEXT, source_video_url TEXT, request_id TEXT,persisted BOOLEAN NOT NULL DEFAULT FALSE, overlay_text TEXT NOT NULL DEFAULT '', overlay_position TEXT NOT NULL DEFAULT 'bottom',overlay_start DOUBLE PRECISION NOT NULL DEFAULT 0, overlay_end DOUBLE PRECISION NOT NULL DEFAULT 0, scene_prompt TEXT,updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY (episode_id, scene_index));`,
       );
