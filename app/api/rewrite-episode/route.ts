@@ -35,7 +35,7 @@ export async function POST(request: Request) {
         { error: "Tell the screenplay AI what needs to change in the episode." },
         { status: 400 },
       );
-    if (scenes.length < 2 || scenes.length > 6 || scenes.some((scene: { prompt: string }) => scene.prompt.length < 10))
+    if (scenes.length < 2 || scenes.length > 12 || scenes.some((scene: { prompt: string }) => scene.prompt.length < 10))
       return NextResponse.json(
         { error: "The complete current screenplay is required." },
         { status: 400 },
