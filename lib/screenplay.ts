@@ -36,7 +36,7 @@ const SCREENPLAY_SCHEMA = {
       scenes: {
         type: "array",
         minItems: 2,
-        maxItems: 6,
+        maxItems: 12,
         items: {
           type: "object",
           additionalProperties: false,
@@ -96,7 +96,7 @@ const EPISODE_REWRITE_SCHEMA = {
       scenes: {
         type: "array",
         minItems: 2,
-        maxItems: 6,
+        maxItems: 12,
         items: {
           type: "object",
           additionalProperties: false,
@@ -117,7 +117,7 @@ You are writing a short episode in the aspect ratio specified by the series bibl
 
 Turn the creator's premise into an actual episode, not generic filler. Build a clear setup, escalation, payoff, and final visual button. Every scene must earn its place and advance the same story. Preserve the creator's central joke and requested events. Do not introduce a phone, laptop, flashlight, remote, new character, or unrelated prop merely to create motion.
 
-Choose the fewest scenes that tell the joke clearly. Every scene must have a different narrative function or materially change the situation. Never create multiple scenes that repeat the same action with only a different object, prop, expression, or camera angle. Combine repeated examples into one chronological escalation scene. For example, if Joe adds a mug, bowl, frying pan, and pot to a dishwasher, show those additions as one escalating scene rather than four separate scenes. Before returning the plan, remove any scene whose story beat can be deleted without changing the setup, escalation, reversal, or payoff. A short idea should usually be 2 to 4 scenes. Use 5 or 6 only when the plot truly has distinct turns. Treat a suggested scene count in a loose premise as flexible unless the creator explicitly says the exact count is mandatory.
+Choose the number of production scenes required to tell the creator's idea clearly. Every scene must have a readable visual purpose, but do not merge creator-requested distinct beats merely to reduce scene count. A distinct wardrobe, profession, location, character state, prop setup, captioned joke, or independently generated action may require its own production scene. When the creator explicitly requests one beat, costume, action, or example per scene, preserve each as a separate production scene in the requested order. Treat an explicit requested scene count as mandatory when it is compatible with the 2 to 12 scene production range.
 
 Each video scene is generated separately, so every scene must be independently production-ready while maintaining exact continuity with the previous scene. Explicitly state the first frame, visible action in chronological order, and final frame. Repeat story-critical room layout, wardrobe, positions, prop states, lighting state, and character sides whenever they must remain unchanged. Never use vague phrases such as “continue the scene,” “as before,” or “the situation escalates” without spelling out what is visible.
 
@@ -129,7 +129,7 @@ Give every scene one short, useful overlay caption of no more than 90 characters
 
 Bed and sleep scenes use believable sleep clothing and no shoes on a bed unless the creator explicitly requires otherwise.
 
-Use 2 to 6 scenes, normally 2 to 4. Use 4 to 12 seconds per scene. Fewer strong scenes are always better than repetitive filler. Return only the requested JSON.`;
+Use 2 to 12 scenes. Use 4 to 12 seconds per scene. Prefer the scene count required by the creator's actual story beats; do not collapse explicitly separate visual beats just to make the episode shorter. Return only the requested JSON.`;
 
 function clean(value: unknown, fallback = "") {
   return typeof value === "string" ? value.trim() : fallback;
@@ -142,7 +142,7 @@ function parsePlan(value: unknown, series: SeriesConfig): ScreenplayPlan {
   if (
     !Array.isArray(candidate.scenes) ||
     candidate.scenes.length < 2 ||
-    candidate.scenes.length > 6
+    candidate.scenes.length > 12
   )
     throw new Error("The screenplay model returned an invalid scene count.");
   const scenes = candidate.scenes.map((scene, index) => {
