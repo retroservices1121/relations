@@ -85,7 +85,8 @@ const SCENE_REWRITE_SCHEMA = {
   },
 } as const;
 
-const EPISODE_REWRITE_SCHEMA = {
+function episodeRewriteSchema(sceneCount: number) {
+  return {
   name: "relations_episode_rewrite",
   strict: true,
   schema: {
@@ -95,8 +96,8 @@ const EPISODE_REWRITE_SCHEMA = {
     properties: {
       scenes: {
         type: "array",
-        minItems: 2,
-        maxItems: 12,
+        minItems: sceneCount,
+        maxItems: sceneCount,
         items: {
           type: "object",
           additionalProperties: false,
@@ -110,6 +111,7 @@ const EPISODE_REWRITE_SCHEMA = {
     },
   },
 } as const;
+}
 
 const SYSTEM_PROMPT = `You are the senior animated-series screenwriter, storyboard director, and continuity supervisor inside Relations Studio.
 
@@ -482,7 +484,7 @@ For every scene, return one complete production prompt with these labeled sectio
         ],
         response_format: {
           type: "json_schema",
-          json_schema: EPISODE_REWRITE_SCHEMA,
+          json_schema: episodeRewriteSchema(input.scenes.length),
         },
       }),
       signal: controller.signal,
