@@ -25,7 +25,7 @@ export const householdNonsenseSeries: SeriesConfig = {
   visualStyle:
     "Simple flat hand-drawn 2D internet cartoon comedy with thick clean outlines, solid colors, readable uncluttered household backgrounds, exaggerated expressions and limited-animation physical acting.",
   screenplayRules:
-    "Use silent physical comedy, closed and visually still mouths, believable household behavior, one clear action per scene, concise overlay captions, and the fewest scenes needed for setup, escalation and payoff. Decorative pillows belong on a living-room sofa during daytime or on a bed while it is being made in the morning; do not freshly arrange decorative bed pillows immediately before sleep unless that contradiction is explicitly the joke.",
+    "Use silent physical comedy, closed and visually still mouths, believable household behavior, one clear action per scene and concise overlay captions. Preserve every creator-requested distinct beat, costume, action, or caption; never merge or omit explicit beats merely to reduce scene count. Decorative pillows belong on a living-room sofa during daytime or on a bed while it is being made in the morning; do not freshly arrange decorative bed pillows immediately before sleep unless that contradiction is explicitly the joke.",
   format: "silent",
   musicMode: "household-theme",
   locked: true,
