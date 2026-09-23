@@ -2,6 +2,7 @@
 import NarrationPanel from "./NarrationPanel";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { Episode } from "../data/episodes";
 import { householdNonsenseSeries, type SeriesConfig } from "../lib/series";
 import sceneStyles from "./EpisodeWorkspace.module.css";
@@ -123,6 +124,7 @@ function ScenePreview({
 }
 
 export default function EpisodeWorkspace({ episode, series = householdNonsenseSeries }: { episode: Episode; series?: SeriesConfig }) {
+  const router = useRouter();
   const [referenceUrls, setReferenceUrls] = useState<Record<string, string>>({});
   const [model, setModel] = useState("seedance-fast");
   const [sceneStates, setSceneStates] = useState<Record<number, SceneState>>(
