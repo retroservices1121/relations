@@ -866,6 +866,45 @@ export default function EpisodeWorkspace({ episode, series = householdNonsenseSe
         prompt: scenePrompts[index] || scene.prompt,
         caption: normalizeOverlay(index, overlays[index]).text,
       }));
+
+      // A full-episode revision may intentionally change the production-scene
+      // count. Existing scene slots cannot safely be expanded in place because
+      // they may already have generated media attached. When the creator asks
+      // for a different explicit count, re-plan the screenplay as a new episode
+      // and move directly to that new production workspace.
+      const sceneCountMatch =
+        revisionNote.match(/(?:exactly|total(?: of)?|must (?:be|have)|there (?:must|should) be)\s+(\d{1,2})\s+(?:production\s+)?scenes?/i) ||
+        revisionNote.match(/(\d{1,2})\s+(?:separate\s+|total\s+)?(?:production\s+)?scenes?/i);
+      const requestedSceneCount = Number(sceneCountMatch?.[1]);
+      if (
+        Number.isInteger(requestedSceneCount) &&
+        requestedSceneCount >= 2 &&
+        requestedSceneCount <= 12 &&
+        requestedSceneCount !== episode.scenes.length
+      ) {
+        const currentScript = scenes
+          .map((scene, index) => `SCENE ${index + 1}\nCAPTION: ${scene.caption}\n${scene.prompt}`)
+          .join("\n\n---\n\n");
+        const response = await fetch("/api/episodes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            mode: "script",
+            title: episode.title,
+            seriesId: series.id,
+            prompt: `REQUIRED FULL EPISODE REVISION:\n${revisionNote}\n\nCURRENT SCREENPLAY TO REPLAN:\n${currentScript}`,
+          }),
+        });
+        const data = await response.json();
+        if (!response.ok)
+          throw new Error(data.error || "The screenplay AI could not re-plan this episode.");
+        if (!data.episode?.id)
+          throw new Error("The screenplay AI did not return the re-planned episode.");
+        router.push(`/episodes/${data.episode.id}`);
+        router.refresh();
+        return;
+      }
+
       const response = await fetch("/api/rewrite-episode", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
