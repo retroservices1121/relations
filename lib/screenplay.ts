@@ -23,7 +23,8 @@ type ScreenplayPlan = {
   scenes: ScreenplayScene[];
 };
 
-const SCREENPLAY_SCHEMA = {
+function screenplaySchema(sceneCount?: number) {
+  return {
   name: "relations_episode_screenplay",
   strict: true,
   schema: {
@@ -35,8 +36,8 @@ const SCREENPLAY_SCHEMA = {
       hook: { type: "string", minLength: 1, maxLength: 180 },
       scenes: {
         type: "array",
-        minItems: 2,
-        maxItems: 12,
+        minItems: sceneCount ?? 2,
+        maxItems: sceneCount ?? 12,
         items: {
           type: "object",
           additionalProperties: false,
@@ -73,6 +74,7 @@ const SCREENPLAY_SCHEMA = {
     },
   },
 } as const;
+}
 
 const SCENE_REWRITE_SCHEMA = {
   name: "relations_scene_rewrite",
@@ -132,6 +134,20 @@ Give every scene one short, useful overlay caption of no more than 90 characters
 Bed and sleep scenes use believable sleep clothing and no shoes on a bed unless the creator explicitly requires otherwise.
 
 Use 2 to 12 scenes. Use 4 to 12 seconds per scene. Prefer the scene count required by the creator's actual story beats; do not collapse explicitly separate visual beats just to make the episode shorter. Return only the requested JSON.`;
+
+function requestedSceneCount(premise: string) {
+  const normalized = premise.toLowerCase();
+  const explicit = [
+    /(?:exactly|total(?: of)?|must (?:be|have)|there (?:must|should) be)\s+(\d{1,2})\s+(?:production\s+)?scenes?/i,
+    /(\d{1,2})\s+(?:separate\s+|total\s+)?(?:production\s+)?scenes?/i,
+  ];
+  for (const pattern of explicit) {
+    const match = premise.match(pattern);
+    const count = Number(match?.[1]);
+    if (Number.isInteger(count) && count >= 2 && count <= 12) return count;
+  }
+  return undefined;
+}
 
 function clean(value: unknown, fallback = "") {
   return typeof value === "string" ? value.trim() : fallback;
@@ -266,10 +282,11 @@ export async function writeEpisodeScreenplay(input: {
     );
   const model = screenplayModel();
   const series = input.series || householdNonsenseSeries;
+  const requiredSceneCount = requestedSceneCount(input.premise);
   const instruction =
     input.mode === "script"
-      ? "Adapt the creator-provided script into production scenes. Preserve its plot, scene order, joke, and ending. Improve only clarity, animation blocking, and continuity."
-      : "Develop the creator's idea into a complete short animated episode with a deliberate setup, escalation, payoff, and final visual button.";
+      ? "Adapt the creator-provided script into production scenes. Preserve every creator-requested beat, its plot, scene order, joke, and ending. Never omit a listed beat. Improve only clarity, animation blocking, and continuity."
+      : "Develop the creator's idea into a complete short animated episode. Preserve every creator-requested beat in order. Never omit a listed request, costume, action, caption, or transformation. If the creator says each beat must be a separate scene, do not merge them.";
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 90000);
   try {
@@ -290,7 +307,7 @@ export async function writeEpisodeScreenplay(input: {
         ],
         response_format: {
           type: "json_schema",
-          json_schema: SCREENPLAY_SCHEMA,
+          json_schema: screenplaySchema(requiredSceneCount),
         },
       }),
       signal: controller.signal,
