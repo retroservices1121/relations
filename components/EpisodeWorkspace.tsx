@@ -127,6 +127,7 @@ export default function EpisodeWorkspace({ episode, series = householdNonsenseSe
   const router = useRouter();
   const [referenceUrls, setReferenceUrls] = useState<Record<string, string>>({});
   const [model, setModel] = useState("seedance-fast");
+  const [audioMode, setAudioMode] = useState<"default" | "social-silent">("default");
   const [sceneStates, setSceneStates] = useState<Record<number, SceneState>>(
     {},
   );
@@ -242,8 +243,10 @@ export default function EpisodeWorkspace({ episode, series = householdNonsenseSe
           overlays?: Record<number, unknown>;
           scenePrompts?: Record<number, string>;
           finalUrl?: string;
+          audioMode?: "default" | "social-silent";
         };
         localStates = project.sceneStates || {};
+        if (project.audioMode === "social-silent" || project.audioMode === "default") setAudioMode(project.audioMode);
         localOverlays = Object.fromEntries(
           episode.scenes.map((_, index) => [
             index,
@@ -331,13 +334,14 @@ export default function EpisodeWorkspace({ episode, series = householdNonsenseSe
     if (!projectLoaded) return;
     localStorage.setItem(
       projectStorageKey,
-      JSON.stringify({ sceneStates, overlays, scenePrompts, finalUrl }),
+      JSON.stringify({ sceneStates, overlays, scenePrompts, finalUrl, audioMode }),
     );
   }, [
     sceneStates,
     overlays,
     scenePrompts,
     finalUrl,
+    audioMode,
     projectLoaded,
     projectStorageKey,
   ]);
@@ -548,6 +552,7 @@ export default function EpisodeWorkspace({ episode, series = householdNonsenseSe
           seriesFormat: series.format,
           seriesVisualStyle: series.visualStyle,
           seriesRules: series.screenplayRules,
+          audioMode,
           prompt: `Use only the approved recurring character assets required for this scene. ${referenceMap} Preserve each referenced identity exactly. Do not introduce a recurring character who is not listed for this scene. SERIES VISUAL STYLE: ${series.visualStyle} SERIES RULES: ${series.screenplayRules} ${series.aspectRatio === "16:9" ? "Landscape 16:9" : "Vertical 9:16"} series episode. Scene action: ${prompt}`,
         }),
       });
@@ -983,7 +988,7 @@ export default function EpisodeWorkspace({ episode, series = householdNonsenseSe
       const response = await fetch("/api/render-episode", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ episodeId: episode.id, scenes, musicMode: series.musicMode, seriesId: series.id }),
+        body: JSON.stringify({ episodeId: episode.id, scenes, musicMode: series.musicMode, seriesId: series.id, audioMode }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Final render failed");
@@ -1053,6 +1058,15 @@ export default function EpisodeWorkspace({ episode, series = householdNonsenseSe
               </option>
             </select>
           </label>
+          {series.id === "household-nonsense" && (
+            <label>
+              Audio Mode
+              <select value={audioMode} onChange={(event) => setAudioMode(event.target.value as "default" | "social-silent")}>
+                <option value="default">Household Nonsense Default (SFX + theme)</option>
+                <option value="social-silent">No Audio / Social Audio</option>
+              </select>
+            </label>
+          )}
         </div>
       </div>
       <section className="referencePanel">
