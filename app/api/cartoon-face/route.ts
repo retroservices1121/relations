@@ -81,7 +81,7 @@ export async function GET(request: Request) {
 
     const status = await fal.queue.status(ENDPOINT, { requestId, logs: true });
     if (status.status !== "COMPLETED") {
-      if (status.status === "FAILED") {
+      if (String(status.status) === "FAILED") {
         return NextResponse.json({ status: "FAILED", error: "The video edit failed at the provider." }, { status: 500 });
       }
       return NextResponse.json({ status: status.status });
