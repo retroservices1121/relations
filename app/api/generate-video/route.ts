@@ -166,6 +166,7 @@ export async function POST(request: Request) {
       seriesFormat = "silent",
       seriesVisualStyle = "",
       seriesRules = "",
+      audioMode = "default",
       duration = 5,
       model = "seedance-fast",
     } = body;
@@ -230,12 +231,13 @@ export async function POST(request: Request) {
       : "";
     const nameMap = characterNames && typeof characterNames === "object" ? characterNames as Record<string, string> : {};
     const descriptionMap = characterDescriptions && typeof characterDescriptions === "object" ? characterDescriptions as Record<string, string> : {};
+    const socialSilent = audioMode === "social-silent";
     const visualDirection = isHouseholdNonsense
-      ? HOUSEHOLD_VISUAL_DIRECTION
+      ? (socialSilent ? `${HOUSEHOLD_VISUAL_DIRECTION}\n\nEPISODE AUDIO MODE OVERRIDE — NO AUDIO / SOCIAL AUDIO: Generate absolutely no audio of any kind. No voices, speech, music, sound effects, ambience, room tone, footsteps, object sounds, clothing sounds, or transformation sounds. The output must be a completely silent video.` : HOUSEHOLD_VISUAL_DIRECTION)
       : genericVisualDirection({ visualStyle: selectedSeries?.visualStyle || String(seriesVisualStyle || ""), rules: selectedSeries?.screenplayRules || String(seriesRules || ""), format: selectedSeries?.format || String(seriesFormat || "silent") });
     const lockedPrompt = `OUTPUT COMPOSITION: ${outputAspect === "16:9" ? "landscape 16:9" : "portrait 9:16"}. This overrides conflicting aspect ratios. ${visualDirection}\n\n${characterReferenceLock(safeCharacterKeys, nameMap, descriptionMap)}${bedSleepPrompt}\n\nSCENE INSTRUCTIONS:\n${prompt}${lightPassPrompt}`;
     const isMusicalScene = prompt.includes("MUSICAL TIMING TARGET:");
-    const generationAudioDisabled = isMusicalScene || seriesFormat === "dialogue" || selectedSeries?.format === "narrated";
+    const generationAudioDisabled = socialSilent || isMusicalScene || seriesFormat === "dialogue" || selectedSeries?.format === "narrated";
 
     if (usingHiggsfield) {
       const response = await fetch(
