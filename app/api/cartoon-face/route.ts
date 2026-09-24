@@ -23,7 +23,7 @@ export async function POST(request:Request){try{
  if(!process.env.FAL_KEY)return NextResponse.json({error:"FAL_KEY is not configured on the server."},{status:500});
  const body=await request.json();const videoUrl=typeof body.videoUrl==="string"?body.videoUrl.trim():"";const cast=Array.isArray(body.cast)?body.cast.filter((v:unknown):v is CastKey=>v==="joe"||v==="danda"):[];const referenceUrls=body.referenceUrls&&typeof body.referenceUrls==="object"?body.referenceUrls as Record<string,string>:{};
  if(!videoUrl)return NextResponse.json({error:"Upload a recorded video first."},{status:400});if(!cast.length||cast.length>2)return NextResponse.json({error:"Choose Joe, Danda, or both."},{status:400});
- const elements=cast.map(key=>{const url=(referenceUrls[key]||"").trim();if(!url)throw Error(`The locked ${key==="joe"?"Joe":"Danda"} reference is missing.`);return{frontal_image_url:url,reference_image_urls:[url]};});
+ const elements=cast.map((key: CastKey)=>{const url=(referenceUrls[key]||"").trim();if(!url)throw Error(`The locked ${key==="joe"?"Joe":"Danda"} reference is missing.`);return{frontal_image_url:url,reference_image_urls:[url]};});
  const submission=await fal.queue.submit(ENDPOINT,{input:{prompt:buildPrompt(cast),video_url:videoUrl,keep_audio:true,elements}});
  return NextResponse.json({requestId:submission.request_id,endpoint:ENDPOINT});
  }catch(error){return NextResponse.json({error:error instanceof Error?error.message:"Cartoon head generation failed."},{status:500});}}
