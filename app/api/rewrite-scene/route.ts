@@ -36,7 +36,8 @@ export async function POST(request: Request) {
     const sceneIndex = Math.max(0, Number(body.sceneIndex) || 0);
     const totalScenes = Math.max(sceneIndex + 1, Number(body.totalScenes) || 1);
     const seriesId = text(body.seriesId) || householdNonsenseSeries.id;
-    const series = (await getSeries(seriesId)) || householdNonsenseSeries;
+    const series = await getSeries(seriesId);
+    if (!series) return NextResponse.json({ error: "The selected series could not be found." }, { status: 404 });
     const prompt = await rewriteSceneWithAi({
       episodeTitle: text(body.episodeTitle) || "Untitled Episode",
       sceneIndex,

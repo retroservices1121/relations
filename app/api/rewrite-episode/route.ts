@@ -41,7 +41,8 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     const seriesId = text(body.seriesId) || householdNonsenseSeries.id;
-    const series = (await getSeries(seriesId)) || householdNonsenseSeries;
+    const series = await getSeries(seriesId);
+    if (!series) return NextResponse.json({ error: "The selected series could not be found." }, { status: 404 });
     const revisedScenes = await rewriteEpisodeWithAi({
       episodeTitle: text(body.episodeTitle) || "Untitled Episode",
       revisionNote,

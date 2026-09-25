@@ -92,9 +92,10 @@ export async function createCustomEpisode(input: {
   sourcePrompt: string;
   inputMode: string;
   scenes: Scene[];
-  seriesId?: string;
+  seriesId: string;
 }) {
   await ensureSchema();
+  if (!input.seriesId || !await getSeries(input.seriesId)) throw new Error("Select an existing series before creating an episode.");
   const id = `custom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
   await pool().query(
     `INSERT INTO relations_custom_episodes (episode_id,title,hook,source_prompt,input_mode,scenes,series_id) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7)`,
@@ -105,7 +106,7 @@ export async function createCustomEpisode(input: {
       input.sourcePrompt,
       input.inputMode,
       JSON.stringify(input.scenes),
-      input.seriesId || "household-nonsense",
+      input.seriesId,
     ],
   );
   return {
@@ -113,7 +114,7 @@ export async function createCustomEpisode(input: {
     title: input.title,
     hook: input.hook,
     scenes: input.scenes,
-    seriesId: input.seriesId || "household-nonsense",
+    seriesId: input.seriesId,
   } satisfies Episode;
 }
 export async function listCustomEpisodes(): Promise<Episode[]> {

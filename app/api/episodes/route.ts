@@ -34,7 +34,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const prompt = clean(body.prompt);
     const mode = body.mode === "script" ? "script" : "idea";
-    const seriesId = clean(body.seriesId) || "household-nonsense";
+    const seriesId = clean(body.seriesId);
+    if (!seriesId) return NextResponse.json({ error: "Select a series before creating an episode." }, { status: 400 });
     if (prompt.length < 10)
       return NextResponse.json(
         { error: "Give the screenplay AI a little more detail first." },
