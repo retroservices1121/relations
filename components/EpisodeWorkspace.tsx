@@ -962,7 +962,7 @@ export default function EpisodeWorkspace({ episode, series = householdNonsenseSe
     [episode.scenes, sceneStates],
   );
   async function buildFinalVideo() {
-    if(series.format === "narrated" && !narrationReady){setFinalError("Save narration changes and generate all non-empty lines first.");return;}
+    if((series.format === "narrated" || (series.id === "household-nonsense" && audioMode !== "social-silent")) && !narrationReady){setFinalError("Save voice changes and generate all non-empty lines first.");return;}
     if (!allScenesReady) {
       setFinalError(
         "Generate and permanently save every scene before building the final episode.",
@@ -1386,7 +1386,8 @@ export default function EpisodeWorkspace({ episode, series = householdNonsenseSe
       <section className="finalBuilder">
         <span className="eyebrow">EPISODE AUDIO</span>
         <h2>{series.title} audio</h2>
-        {series.format === "narrated" && <NarrationPanel episode={episode} onChange={()=>setFinalUrl("")} onReady={setNarrationReady} />}
+        {(series.format === "narrated" || series.id === "household-nonsense") && <NarrationPanel episode={episode} onChange={()=>setFinalUrl("")} onReady={setNarrationReady} household={series.id === "household-nonsense"} />}
+        {series.id === "household-nonsense" && audioMode === "social-silent" && <p>Switch Audio Mode to Household Nonsense Default to include Joe’s generated voice. No Audio / Social Audio exports without sound.</p>}
         <p>
           AI sound effects replace the current scene audio while preserving the
           approved visuals. The audio model can occasionally invent unwanted

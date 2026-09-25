@@ -13,7 +13,7 @@ async function narratedEpisode(id:string){
   const episode=await getCustomEpisode(id);
   if(!episode) throw Error("Episode not found.");
   const series=await getSeries(episode.seriesId||"household-nonsense");
-  if(!series || series.locked || series.format!=="narrated") throw Error("Enable narration in this custom series' production settings first.");
+  if(!series || (series.format!=="narrated" && series.id!=="household-nonsense")) throw Error("Enable narration in this series' production settings first.");
   return episode;
 }
 export async function GET(request:Request){try{const id=new URL(request.url).searchParams.get("episodeId")||"";await narratedEpisode(id);return NextResponse.json({scenes:await loadNarration(id)});}catch(e){return NextResponse.json({error:e instanceof Error?e.message:"Could not load narration."},{status:400});}}
