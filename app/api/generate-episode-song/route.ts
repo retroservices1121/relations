@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { fal } from "@fal-ai/client";
 import { putR2Object, r2Configured } from "@/lib/r2";
+import { dbConfigured, recordAsset } from "@/lib/db";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -38,6 +39,7 @@ export async function POST(request: Request) {
     const bytes = Buffer.from(await audioResponse.arrayBuffer());
     const key = `relations/${cleanPart(episodeId)}/music/song-${Date.now()}.wav`;
     const stored = await putR2Object(key, bytes, "audio/wav");
+    if (dbConfigured() && /^[a-zA-Z0-9_-]{1,120}$/.test(episodeId)) await recordAsset({episodeId,kind:"soundtrack",url:stored.url,label:"Episode song",requestId:result.requestId});
 
     let transcript = "";
     let chunks: unknown[] = [];

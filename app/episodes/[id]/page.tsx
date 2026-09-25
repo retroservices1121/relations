@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import EpisodeWorkspace from "../../../components/EpisodeWorkspace";
 import MusicalProductionWorkspace from "../../../components/MusicalProductionWorkspace";
 import FalCostDashboard from "../../../components/FalCostDashboard";
+import ProductionLibrary from "../../../components/ProductionLibrary";
 import { episodes as baseEpisodes } from "../../../data/episodes";
 import type { Episode } from "../../../data/episodes";
 import { extraEpisodes } from "../../../data/extraEpisodes";
@@ -46,6 +47,7 @@ export default async function EpisodePage({ params }: { params: Promise<{ id: st
     <div className={styles.shell}>
       {musical ? <MusicalProductionWorkspace episode={musical} /> : <EpisodeWorkspace episode={episode} series={series || householdNonsenseSeries} />}
       <FalCostDashboard episodeId={episode.id} />
+      <ProductionLibrary episodeId={episode.id} />
     </div>
   );
 }

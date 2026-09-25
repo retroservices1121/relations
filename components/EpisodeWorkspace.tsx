@@ -391,6 +391,8 @@ export default function EpisodeWorkspace({ episode, series = householdNonsenseSe
     try {
       const formData = new FormData();
       formData.append("file", file);
+      formData.append("episodeId", episode.id);
+      formData.append("characterKey", character);
       const response = await fetch("/api/upload-reference", {
         method: "POST",
         body: formData,
@@ -1017,6 +1019,7 @@ export default function EpisodeWorkspace({ episode, series = householdNonsenseSe
           <span className="eyebrow">{series.title}</span>
           <h1>{episode.title}</h1>
           <p>{episode.hook}</p>
+          <a className="backLink" href="#production-library">View saved takes and exports ↓</a>
         </div>
         <div className="workspaceControls">
           {generationProvider === "fal" ? (

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCustomEpisode, getSeries, clearFinalVideo } from "@/lib/db";
+import { getCustomEpisode, getSeries, clearFinalVideo, recordAsset } from "@/lib/db";
 import { loadNarration, saveNarration } from "@/lib/narration";
 import { narrationVoices } from "@/lib/production";
 import { putR2Object, r2Configured } from "@/lib/r2";
@@ -42,6 +42,6 @@ export async function POST(request:Request){let dir="";try{
     const stored=await putR2Object(`relations/${id.replace(/[^a-zA-Z0-9-_]/g,"-")}/narration/${index}-${crypto.randomUUID()}.mp3`,bytes,"audio/mpeg");
     item={text,voice:body.voice,url:stored.url,duration};
   }
-  await saveNarration(id,index,item);await clearFinalVideo(id);
+  await saveNarration(id,index,item);if(body.action==="generate") await recordAsset({episodeId:id,kind:"narration",sceneIndex:index,url:item.url,label:`Scene ${index+1} voice`});await clearFinalVideo(id);
   return NextResponse.json({narration:item});
 }catch(e){return NextResponse.json({error:e instanceof Error?e.message:"Narration failed."},{status:400});}finally{if(dir)await fs.rm(dir,{recursive:true,force:true});}}

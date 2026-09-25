@@ -68,6 +68,20 @@ export async function ensureSchema() {
       await db.query(
         `CREATE INDEX IF NOT EXISTS relations_generation_episode_scene_idx ON relations_generation_requests (episode_id, scene_index, created_at);`,
       );
+      await db.query(`CREATE TABLE IF NOT EXISTS relations_assets (
+        id BIGSERIAL PRIMARY KEY,
+        episode_id TEXT NOT NULL,
+        series_id TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('scene','final','narration','reference','soundtrack')),
+        scene_index INTEGER,
+        url TEXT NOT NULL,
+        label TEXT NOT NULL DEFAULT '',
+        request_id TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (episode_id,kind,url)
+      )`);
+      await db.query(`CREATE INDEX IF NOT EXISTS relations_assets_episode_idx ON relations_assets (episode_id,created_at DESC,id DESC)`);
+      await db.query(`CREATE INDEX IF NOT EXISTS relations_assets_series_idx ON relations_assets (series_id,created_at DESC,id DESC)`);
     })();
   }
   await global.relationsSchemaReady;
@@ -196,7 +210,10 @@ export async function saveSceneVideo(input: {
   themeBaked?: boolean;
 }) {
   await ensureSchema();
-  await pool().query(
+  const db = await pool().connect();
+  try {
+  await db.query("BEGIN");
+  await db.query(
     `INSERT INTO relations_scenes (episode_id,scene_index,video_url,source_video_url,request_id,persisted,theme_baked,updated_at) VALUES ($1,$2,$3,$4,$5,TRUE,$6,NOW()) ON CONFLICT (episode_id,scene_index) DO UPDATE SET video_url=EXCLUDED.video_url,source_video_url=COALESCE(EXCLUDED.source_video_url,relations_scenes.source_video_url),request_id=EXCLUDED.request_id,persisted=TRUE,theme_baked=EXCLUDED.theme_baked,updated_at=NOW()`,
     [
       input.episodeId,
@@ -207,6 +224,9 @@ export async function saveSceneVideo(input: {
       input.themeBaked ?? false,
     ],
   );
+  await recordAsset({episodeId:input.episodeId,kind:"scene",sceneIndex:input.sceneIndex,url:input.videoUrl,label:`Scene ${input.sceneIndex+1} take`,requestId:input.requestId},db);
+  await db.query("COMMIT");
+  } catch(error) { await db.query("ROLLBACK"); throw error; } finally { db.release(); }
 }
 export async function restoreOriginalSceneAudio(
   episodeId: string,
@@ -257,10 +277,68 @@ export async function saveScenePrompt(input: {
 }
 export async function saveFinalVideo(episodeId: string, finalUrl: string) {
   await ensureSchema();
-  await pool().query(
+  const db = await pool().connect();
+  try {
+  await db.query("BEGIN");
+  await db.query(
     `INSERT INTO relations_projects (episode_id,final_url,updated_at) VALUES ($1,$2,NOW()) ON CONFLICT (episode_id) DO UPDATE SET final_url=EXCLUDED.final_url,updated_at=NOW()`,
     [episodeId, finalUrl],
   );
+  await recordAsset({episodeId,kind:"final",url:finalUrl,label:"Episode export"},db);
+  await db.query("COMMIT");
+  } catch(error) { await db.query("ROLLBACK"); throw error; } finally { db.release(); }
+}
+
+export type AssetKind = "scene" | "final" | "narration" | "reference" | "soundtrack";
+type AssetInput = {episodeId:string;kind:AssetKind;url:string;sceneIndex?:number;label?:string;requestId?:string};
+export async function recordAsset(input:AssetInput, client?: import("pg").PoolClient) {
+  await ensureSchema();
+  const executor = client || pool();
+  await executor.query(`INSERT INTO relations_assets (episode_id,series_id,kind,scene_index,url,label,request_id)
+    VALUES ($1,COALESCE((SELECT series_id FROM relations_custom_episodes WHERE episode_id=$1),'household-nonsense'),$2,$3,$4,$5,$6)
+    ON CONFLICT (episode_id,kind,url) DO NOTHING`,
+    [input.episodeId,input.kind,input.sceneIndex ?? null,input.url,input.label || "",input.requestId || null]);
+}
+export async function listEpisodeAssets(episodeId:string) {
+  await ensureSchema();
+  await pool().query(`INSERT INTO relations_assets (episode_id,series_id,kind,scene_index,url,label,request_id)
+    SELECT s.episode_id,COALESCE(e.series_id,'household-nonsense'),'scene',s.scene_index,s.video_url,CONCAT('Scene ',s.scene_index+1,' saved take'),s.request_id
+    FROM relations_scenes s LEFT JOIN relations_custom_episodes e ON e.episode_id=s.episode_id
+    WHERE s.episode_id=$1 AND s.video_url IS NOT NULL AND s.video_url<>''
+    ON CONFLICT (episode_id,kind,url) DO NOTHING`,[episodeId]);
+  await pool().query(`INSERT INTO relations_assets (episode_id,series_id,kind,url,label)
+    SELECT p.episode_id,COALESCE(e.series_id,'household-nonsense'),'final',p.final_url,'Episode export'
+    FROM relations_projects p LEFT JOIN relations_custom_episodes e ON e.episode_id=p.episode_id
+    WHERE p.episode_id=$1 AND p.final_url IS NOT NULL AND p.final_url<>''
+    ON CONFLICT (episode_id,kind,url) DO NOTHING`,[episodeId]);
+  await pool().query(`INSERT INTO relations_assets (episode_id,series_id,kind,scene_index,url,label)
+    SELECT n.episode_id,COALESCE(e.series_id,'household-nonsense'),'narration',n.scene_index,n.url,CONCAT('Scene ',n.scene_index+1,' voice')
+    FROM relations_narration n LEFT JOIN relations_custom_episodes e ON e.episode_id=n.episode_id
+    WHERE n.episode_id=$1 AND n.url<>''
+    ON CONFLICT (episode_id,kind,url) DO NOTHING`,[episodeId]);
+  const result=await pool().query(`SELECT id,episode_id,series_id,kind,scene_index,url,label,request_id,created_at FROM relations_assets WHERE episode_id=$1 ORDER BY created_at DESC,id DESC LIMIT 300`,[episodeId]);
+  return result.rows;
+}
+export async function getEpisodeAsset(episodeId:string,assetId:number) {
+  await ensureSchema();
+  const result=await pool().query(`SELECT id,episode_id,kind,scene_index,url FROM relations_assets WHERE episode_id=$1 AND id=$2`,[episodeId,assetId]);
+  return result.rows[0] as {id:number;episode_id:string;kind:AssetKind;scene_index:number|null;url:string}|undefined;
+}
+export async function restoreSceneTake(episodeId:string,assetId:number) {
+  await ensureSchema();
+  const db=await pool().connect();
+  try {
+    await db.query("BEGIN");
+    const asset=await db.query(`SELECT scene_index,url,request_id FROM relations_assets WHERE id=$1 AND episode_id=$2 AND kind='scene' FOR UPDATE`,[assetId,episodeId]);
+    const take=asset.rows[0];
+    if(!take || !Number.isInteger(take.scene_index)) { await db.query("ROLLBACK"); return null; }
+    await db.query(`INSERT INTO relations_scenes (episode_id,scene_index,video_url,source_video_url,request_id,persisted,theme_baked,updated_at)
+      VALUES ($1,$2,$3,$3,$4,TRUE,FALSE,NOW())
+      ON CONFLICT (episode_id,scene_index) DO UPDATE SET video_url=EXCLUDED.video_url,source_video_url=EXCLUDED.source_video_url,request_id=EXCLUDED.request_id,persisted=TRUE,theme_baked=FALSE,updated_at=NOW()`,[episodeId,take.scene_index,take.url,take.request_id]);
+    await db.query(`INSERT INTO relations_projects (episode_id,final_url,updated_at) VALUES ($1,NULL,NOW()) ON CONFLICT (episode_id) DO UPDATE SET final_url=NULL,updated_at=NOW()`,[episodeId]);
+    await db.query("COMMIT");
+    return {sceneIndex:Number(take.scene_index),videoUrl:String(take.url),requestId:take.request_id || ""};
+  } catch(error) {await db.query("ROLLBACK");throw error;} finally {db.release();}
 }
 export async function clearFinalVideo(episodeId: string) {
   await ensureSchema();
