@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { hybridVideoBlockReason, replaceTimelineVideo, type TimelineItem } from "@/lib/hybrid-timeline";
 
 type CastKey = "joe" | "danda";
 type Status = "idle" | "uploading" | "ready" | "generating" | "done" | "error";
-type TimelineItem = { id: string; type: "video" | "image"; url: string; duration: number; label: string };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const refKey = (character: CastKey) => `relations:series:household-nonsense:character:${character}`;
@@ -28,8 +28,17 @@ export default function CartoonFaceWorkspace() {
   }, []);
 
   const missing = useMemo(() => cast.filter((key) => !references[key]), [cast, references]);
+  const hybridBlockReason = hybridVideoBlockReason(timeline, status, resultUrl);
 
   function toggleCast(key: CastKey) {
+    if (cast.length === 1 && cast.includes(key)) return;
+    setResultUrl("");
+    setHybridUrl("");
+    setError("");
+    if (sourceUrl) {
+      setStatus("ready");
+      setTimeline((current) => replaceTimelineVideo(current, sourceUrl, "Opening video — locked heads required"));
+    }
     setCast((current) =>
       current.includes(key)
         ? current.length === 1 ? current : current.filter((value) => value !== key)
@@ -42,6 +51,8 @@ export default function CartoonFaceWorkspace() {
     setStatus("uploading");
     setError("");
     setResultUrl("");
+    setSourceUrl("");
+    setHybridUrl("");
     try {
       const form = new FormData();
       form.append("file", file);
@@ -49,7 +60,9 @@ export default function CartoonFaceWorkspace() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Upload failed.");
       setSourceUrl(data.url);
-      setTimeline((current) => current.length ? current : [{ id: crypto.randomUUID(), type: "video", url: data.url, duration: 4, label: "Opening video" }]);
+      setTimeline((current) => current.some((item) => item.type === "video")
+        ? replaceTimelineVideo(current, data.url, "Opening video — locked heads required")
+        : [{ id: crypto.randomUUID(), type: "video", url: data.url, duration: 4, label: "Opening video — locked heads required" }, ...current]);
       setStatus("ready");
     } catch (err) {
       setStatus("error");
@@ -62,12 +75,15 @@ export default function CartoonFaceWorkspace() {
     setError("");
     const form=new FormData();form.append("file",file);
     try { const r=await fetch("/api/upload-reference",{method:"POST",body:form});const d=await r.json();if(!r.ok)throw Error(d.error||"Image upload failed.");
+      setHybridUrl("");
       setTimeline(current=>[...current,{id:crypto.randomUUID(),type:"image",url:d.url,duration:1.5,label:`Costume still ${current.filter(x=>x.type==="image").length+1}`}]);
     } catch(e){setError(e instanceof Error?e.message:"Image upload failed.");}
   }
-  function updateDuration(id:string,value:number){setTimeline(current=>current.map(item=>item.id===id?{...item,duration:Math.max(.5,Math.min(60,value||.5))}:item));}
-  function removeItem(id:string){setTimeline(current=>current.filter(item=>item.id!==id));}
+  function updateDuration(id:string,value:number){setHybridUrl("");setTimeline(current=>current.map(item=>item.id===id?{...item,duration:Math.max(.5,Math.min(60,value||.5))}:item));}
+  function removeItem(id:string){setHybridUrl("");setTimeline(current=>current.filter(item=>item.id!==id));}
   async function buildHybrid(){
+    const blocked = hybridVideoBlockReason(timeline, status, resultUrl);
+    if (blocked) { setError(blocked); return; }
     if(!timeline.length)return;setHybridBusy(true);setError("");setHybridUrl("");
     try{const r=await fetch("/api/render-hybrid",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({items:timeline})});const d=await r.json();if(!r.ok)throw Error(d.error||"Hybrid export failed.");setHybridUrl(d.url);}
     catch(e){setError(e instanceof Error?e.message:"Hybrid export failed.");}finally{setHybridBusy(false);}
@@ -82,6 +98,8 @@ export default function CartoonFaceWorkspace() {
     setStatus("generating");
     setError("");
     setResultUrl("");
+    setHybridUrl("");
+    setTimeline((current) => replaceTimelineVideo(current, sourceUrl, "Opening video — applying locked cartoon heads…"));
     try {
       const response = await fetch("/api/cartoon-face", {
         method: "POST",
@@ -96,8 +114,14 @@ export default function CartoonFaceWorkspace() {
         const poll = await fetch(`/api/cartoon-face?requestId=${encodeURIComponent(requestId)}`, { cache: "no-store" });
         const pollData = await poll.json();
         if (!poll.ok) throw new Error(pollData.error || "Generation failed.");
-        if (pollData.status === "COMPLETED" && pollData.videoUrl) {
+        if (pollData.status === "FAILED") throw new Error(pollData.error || "Locked-head processing failed. Please try again.");
+        if (pollData.status === "COMPLETED") {
+          if (typeof pollData.videoUrl !== "string" || !pollData.videoUrl.trim() || pollData.videoUrl === sourceUrl) {
+            throw new Error("Locked-head processing did not return a processed video. Please try again before building the hybrid video.");
+          }
           setResultUrl(pollData.videoUrl);
+          const names = cast.map((key) => key === "joe" ? "Joe" : "Danda").join(" and ");
+          setTimeline((current) => replaceTimelineVideo(current, pollData.videoUrl, `Opening video — locked ${names} cartoon ${cast.length === 1 ? "head" : "heads"} applied`));
           setStatus("done");
           return;
         }
@@ -106,6 +130,7 @@ export default function CartoonFaceWorkspace() {
     } catch (err) {
       setStatus("error");
       setError(err instanceof Error ? err.message : "Generation failed.");
+      setTimeline((current) => replaceTimelineVideo(current, sourceUrl, "Opening video — locked-head processing failed"));
     }
   }
 
@@ -118,17 +143,17 @@ export default function CartoonFaceWorkspace() {
       <div className="overlayEditor">
         <label>
           1. Upload your recorded clip
-          <input type="file" accept="video/mp4,video/quicktime,.mp4,.mov" onChange={(event) => void uploadVideo(event.target.files?.[0])} disabled={status === "uploading" || status === "generating"} />
+          <input type="file" accept="video/mp4,video/quicktime,.mp4,.mov" onChange={(event) => void uploadVideo(event.target.files?.[0])} disabled={hybridBusy || status === "uploading" || status === "generating"} />
         </label>
         <small>Upload the moving portion of the performance. You can add generated costume stills below instead of paying to animate every beat.</small>
 
         <div>
           <span className="eyebrow">2. WHO IS IN THE VIDEO?</span>
           <div className="sceneActions">
-            <button type="button" onClick={() => toggleCast("joe")} aria-pressed={cast.includes("joe")}>
+            <button type="button" disabled={hybridBusy || status === "uploading" || status === "generating"} onClick={() => toggleCast("joe")} aria-pressed={cast.includes("joe")}>
               {cast.includes("joe") ? "✓ " : ""}Joe
             </button>
-            <button type="button" onClick={() => toggleCast("danda")} aria-pressed={cast.includes("danda")}>
+            <button type="button" disabled={hybridBusy || status === "uploading" || status === "generating"} onClick={() => toggleCast("danda")} aria-pressed={cast.includes("danda")}>
               {cast.includes("danda") ? "✓ " : ""}Danda
             </button>
           </div>
@@ -154,12 +179,13 @@ export default function CartoonFaceWorkspace() {
         <p>Add the generated costume images in the exact order they should appear. Hard cuts are intentional for the comedy.</p>
         <label className="uploadButton">+ Add costume still<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(e)=>{void addStill(e.target.files?.[0]);e.currentTarget.value="";}} /></label>
         {timeline.map((item,index)=><div key={item.id} className="sceneActions"><strong>{index+1}. {item.label}</strong><span>{item.type==="video"?"Video":"Still"}</span><label>Seconds <input style={{width:72}} type="number" min=".5" max="60" step=".5" value={item.duration} onChange={e=>updateDuration(item.id,Number(e.target.value))}/></label><button type="button" onClick={()=>removeItem(item.id)}>Remove</button></div>)}
-        <button type="button" disabled={!timeline.length||hybridBusy} onClick={()=>void buildHybrid()}>{hybridBusy?"Building hybrid video…":"Build Hybrid Video"}</button>
+        {hybridBlockReason && <p id="hybrid-video-block" className="statusText" role="status">{hybridBlockReason}</p>}
+        <button type="button" disabled={!timeline.length||hybridBusy||!!hybridBlockReason} aria-describedby={hybridBlockReason ? "hybrid-video-block" : undefined} onClick={()=>void buildHybrid()}>{hybridBusy?"Building hybrid video…":"Build Hybrid Video"}</button>
         {hybridUrl&&<div className="finalResult"><h3>Hybrid video</h3><video className="finalVideo" src={hybridUrl} controls playsInline/><a className="downloadLink" href={hybridUrl} target="_blank" rel="noreferrer">Open finished hybrid video</a></div>}
       </div>
 
-      <button type="button" onClick={() => void createCartoonVersion()} disabled={!sourceUrl || status === "uploading" || status === "generating"}>
-        {status === "generating" ? "Tracking faces and creating cartoon version…" : "Create Cartoon Face Video"}
+      <button type="button" onClick={() => void createCartoonVersion()} disabled={hybridBusy || !sourceUrl || status === "uploading" || status === "generating"}>
+        {status === "generating" ? "Tracking faces and applying locked cartoon heads…" : "Apply Locked Cartoon Heads"}
       </button>
 
       {status === "uploading" && <p className="statusText">Uploading recorded video…</p>}
