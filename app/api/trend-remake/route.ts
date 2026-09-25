@@ -17,6 +17,25 @@ const ffmpeg = process.env.FFMPEG_PATH || "ffmpeg";
 
 function clean(value: string) { return value.replace(/[^a-zA-Z0-9-_]/g, "-"); }
 function validUrl(value: unknown): value is string { return typeof value === "string" && /^https:\/\//.test(value); }
+function errorMessage(error: unknown, fallback: string) {
+  if (!error || typeof error !== "object") return fallback;
+  const value = error as { message?: unknown; body?: { detail?: unknown }; requestId?: unknown };
+  const detail = value.body?.detail;
+  let message = typeof value.message === "string" ? value.message : fallback;
+  if (typeof detail === "string") message = detail;
+  else if (Array.isArray(detail)) {
+    const fields = detail.map((item) => {
+      if (!item || typeof item !== "object") return "";
+      const issue = item as { loc?: unknown; msg?: unknown };
+      const location = Array.isArray(issue.loc) ? issue.loc.filter((part) => part !== "body").join(" → ") : "";
+      const reason = typeof issue.msg === "string" ? issue.msg : "";
+      return [location, reason].filter(Boolean).join(": ");
+    }).filter(Boolean);
+    if (fields.length) message = fields.join("; ");
+  }
+  const requestId = typeof value.requestId === "string" && value.requestId ? ` (fal request ${value.requestId})` : "";
+  return `${message}${requestId}`;
+}
 async function download(url: string, output: string) {
   const response = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(120000) });
   if (!response.ok) throw new Error(`Could not download trend media (${response.status}).`);
@@ -66,9 +85,15 @@ async function start(body: Record<string, unknown>) {
       await execFileAsync(ffmpeg, ["-y", "-ss", part.start.toFixed(3), "-i", source, "-t", part.duration.toFixed(3), "-map", "0:v:0", "-an", "-vf", "fps=30,format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-movflags", "+faststart", clip]);
       const stored = await putR2Object(`relations/trends/${clean(jobKey)}/source-${part.index}.mp4`, await fs.readFile(clip), "video/mp4");
       const submission = await fal.queue.submit(TREND_ENDPOINT, { input: {
-        prompt: trendPrompt(), task: "editing", video_urls: [stored.url], image_urls: [joe, danda],
-        duration: "auto", aspect_ratio: "auto", resolution: "720p", codec: "H264",
-        bitrate_mode: "high", generate_audio: false,
+        prompt: trendPrompt(),
+        reference_video_urls: [stored.url],
+        reference_image_urls: [joe, danda],
+        duration: Math.max(5, Math.min(15, Math.round(part.duration))),
+        aspect_ratio: "adaptive",
+        resolution: "768P",
+        prompt_expansion_mode: "disabled",
+        enable_safety_checker: true,
+        sync_mode: false,
       }});
       jobs.push({ requestId: submission.request_id, index: part.index, duration: part.duration });
     }
@@ -144,7 +169,7 @@ export async function POST(request: Request) {
     const action = body.action === "finalize" ? "finalize" : "start";
     return NextResponse.json(action === "start" ? await start(body) : await finalize(body));
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Trend remake failed." }, { status: 500 });
+    return NextResponse.json({ error: errorMessage(error, "Trend remake failed.") }, { status: 500 });
   }
 }
 
@@ -153,6 +178,6 @@ export async function GET(request: Request) {
     if (!process.env.FAL_KEY) return NextResponse.json({ error: "FAL_KEY is not configured on the server." }, { status: 500 });
     return NextResponse.json(await status(request));
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Could not check the trend remake." }, { status: 500 });
+    return NextResponse.json({ error: errorMessage(error, "Could not check the trend remake.") }, { status: 500 });
   }
 }
