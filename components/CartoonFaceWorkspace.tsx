@@ -20,6 +20,7 @@ export default function CartoonFaceWorkspace() {
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
   const [hybridUrl, setHybridUrl] = useState("");
   const [hybridBusy, setHybridBusy] = useState(false);
+  const [uploadingReference, setUploadingReference] = useState<CastKey | null>(null);
 
   useEffect(() => {
     setReferences({
@@ -80,6 +81,25 @@ export default function CartoonFaceWorkspace() {
       setTimeline(current=>[...current,{id:crypto.randomUUID(),type:"image",url:d.url,duration:1.5,label:`Costume still ${current.filter(x=>x.type==="image").length+1}`}]);
     } catch(e){setError(e instanceof Error?e.message:"Image upload failed.");}
   }
+  async function uploadCharacterReference(character: CastKey, file?: File) {
+    if (!file) return;
+    setUploadingReference(character);
+    setError("");
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const response = await fetch("/api/upload-reference", { method: "POST", body: form });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Reference upload failed.");
+      if (typeof data.url !== "string" || !data.url) throw new Error("Reference upload completed without an image URL.");
+      localStorage.setItem(refKey(character), data.url);
+      setReferences((current) => ({ ...current, [character]: data.url }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Reference upload failed.");
+    } finally {
+      setUploadingReference(null);
+    }
+  }
   function updateDuration(id:string,value:number){setHybridUrl("");setTimeline(current=>current.map(item=>item.id===id?{...item,duration:Math.max(.5,Math.min(60,value||.5))}:item));}
   function removeItem(id:string){setHybridUrl("");setTimeline(current=>current.filter(item=>item.id!==id));}
   async function buildHybrid(){
@@ -93,7 +113,7 @@ export default function CartoonFaceWorkspace() {
   async function createCartoonVersion() {
     if (!sourceUrl) return;
     if (missing.length) {
-      setError(`Open a Household Nonsense episode first and lock the ${missing.map((key) => key === "joe" ? "Joe" : "Danda").join(" and ")} character reference.`);
+      setError(`Upload the locked ${missing.map((key) => key === "joe" ? "Joe" : "Danda").join(" and ")} cartoon reference in Step 03 before applying locked heads.`);
       return;
     }
     setStatus("generating");
@@ -175,8 +195,18 @@ export default function CartoonFaceWorkspace() {
           <div className={styles.stepTop}><span>03</span><b>Check references</b></div>
           <p>The episode’s locked character art is used for every frame.</p>
           <div className={styles.referenceList}>
-            <span><i className={references.joe ? styles.readyDot : styles.missingDot} />Joe reference <b>{references.joe ? "Ready" : "Missing"}</b></span>
-            <span><i className={references.danda ? styles.readyDot : styles.missingDot} />Danda reference <b>{references.danda ? "Ready" : "Missing"}</b></span>
+            {(["joe", "danda"] as CastKey[]).map((character) => {
+              const name = character === "joe" ? "Joe" : "Danda";
+              const ready = Boolean(references[character]);
+              return <div className={styles.referenceRow} key={character}>
+                {ready ? <img src={references[character]} alt={`${name} locked cartoon reference`} /> : <span className={styles.referencePlaceholder}>{name.slice(0, 1)}</span>}
+                <span className={styles.referenceName}><i className={ready ? styles.readyDot : styles.missingDot} />{name} reference <b>{ready ? "Ready" : "Missing"}</b></span>
+                <label className={styles.referenceButton}>
+                  {uploadingReference === character ? "Uploading…" : ready ? "Replace" : "Upload"}
+                  <input type="file" accept="image/jpeg,image/png,image/webp" disabled={uploadingReference !== null || status === "generating" || hybridBusy} onChange={(event) => { void uploadCharacterReference(character, event.target.files?.[0]); event.currentTarget.value = ""; }} />
+                </label>
+              </div>;
+            })}
           </div>
         </section>
       </div>
