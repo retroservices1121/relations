@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { hybridVideoBlockReason, replaceTimelineVideo, type TimelineItem } from "@/lib/hybrid-timeline";
+import styles from "./CartoonFaceWorkspace.module.css";
 
 type CastKey = "joe" | "danda";
 type Status = "idle" | "uploading" | "ready" | "generating" | "done" | "error";
@@ -135,70 +136,93 @@ export default function CartoonFaceWorkspace() {
   }
 
   return (
-    <section className="finalBuilder">
-      <span className="eyebrow">LIVE ACTION → HOUSEHOLD NONSENSE</span>
-      <h2>Locked cartoon heads + hybrid timeline</h2>
-      <p>Joe and Danda always use their exact locked cartoon heads, including the cartoon hairstyle and facial design. Your real hairstyle is never recreated. Build the moving opening, then add costume stills to the same timeline.</p>
-
-      <div className="overlayEditor">
-        <label>
-          1. Upload your recorded clip
-          <input type="file" accept="video/mp4,video/quicktime,.mp4,.mov" onChange={(event) => void uploadVideo(event.target.files?.[0])} disabled={hybridBusy || status === "uploading" || status === "generating"} />
-        </label>
-        <small>Upload the moving portion of the performance. You can add generated costume stills below instead of paying to animate every beat.</small>
-
+    <section className={styles.workspace}>
+      <div className={styles.workspaceHead}>
         <div>
-          <span className="eyebrow">2. WHO IS IN THE VIDEO?</span>
-          <div className="sceneActions">
+          <span className={styles.kicker}>Character replacement</span>
+          <h2>Build the locked-head opening</h2>
+          <p>Joe and Danda keep their exact illustrated face, hair, and proportions while your performance, body, setting, and original audio stay intact.</p>
+        </div>
+        <span className={`${styles.stateBadge} ${status === "done" ? styles.stateReady : ""}`}>
+          {status === "done" ? "Locked heads ready" : status === "generating" ? "Processing video" : "Setup required"}
+        </span>
+      </div>
+
+      <div className={styles.setupGrid}>
+        <section className={styles.setupCard}>
+          <div className={styles.stepTop}><span>01</span><b>Upload opening</b></div>
+          <p>Choose the moving part of your performance. MP4 and MOV are supported.</p>
+          <label className={styles.fileButton}>
+            {sourceUrl ? "Replace recording" : "Choose recording"}
+            <input type="file" accept="video/mp4,video/quicktime,.mp4,.mov" onChange={(event) => void uploadVideo(event.target.files?.[0])} disabled={hybridBusy || status === "uploading" || status === "generating"} />
+          </label>
+        </section>
+
+        <section className={styles.setupCard}>
+          <div className={styles.stepTop}><span>02</span><b>Choose the cast</b></div>
+          <p>Match each locked character to the adults visible in the clip.</p>
+          <div className={styles.castButtons}>
             <button type="button" disabled={hybridBusy || status === "uploading" || status === "generating"} onClick={() => toggleCast("joe")} aria-pressed={cast.includes("joe")}>
-              {cast.includes("joe") ? "✓ " : ""}Joe
+              <span className={styles.castAvatar}>J</span><span><b>Joe</b><small>Adult man</small></span><i>{cast.includes("joe") ? "✓" : "+"}</i>
             </button>
             <button type="button" disabled={hybridBusy || status === "uploading" || status === "generating"} onClick={() => toggleCast("danda")} aria-pressed={cast.includes("danda")}>
-              {cast.includes("danda") ? "✓ " : ""}Danda
+              <span className={`${styles.castAvatar} ${styles.dandaAvatar}`}>D</span><span><b>Danda</b><small>Adult woman</small></span><i>{cast.includes("danda") ? "✓" : "+"}</i>
             </button>
           </div>
-          <p className="statusText">Joe maps to the adult man. Danda maps to the adult woman. Keep both selected when you are both on camera.</p>
-        </div>
+        </section>
 
-        <div>
-          <span className="eyebrow">3. LOCKED REFERENCES</span>
-          <p>Joe: {references.joe ? "✓ Ready" : "Missing"} · Danda: {references.danda ? "✓ Ready" : "Missing"}</p>
-        </div>
+        <section className={styles.setupCard}>
+          <div className={styles.stepTop}><span>03</span><b>Check references</b></div>
+          <p>The episode’s locked character art is used for every frame.</p>
+          <div className={styles.referenceList}>
+            <span><i className={references.joe ? styles.readyDot : styles.missingDot} />Joe reference <b>{references.joe ? "Ready" : "Missing"}</b></span>
+            <span><i className={references.danda ? styles.readyDot : styles.missingDot} />Danda reference <b>{references.danda ? "Ready" : "Missing"}</b></span>
+          </div>
+        </section>
       </div>
 
-      {sourceUrl && (
-        <div className="finalResult">
-          <h3>Original recording</h3>
-          <video className="finalVideo" src={sourceUrl} controls playsInline />
+      {(sourceUrl || resultUrl) && (
+        <div className={styles.previewGrid}>
+          {sourceUrl && <article className={styles.previewCard}><div className={styles.previewHead}><div><span>Source</span><h3>Original recording</h3></div><small>Live action</small></div><video src={sourceUrl} controls playsInline /></article>}
+          {resultUrl && <article className={`${styles.previewCard} ${styles.processedCard}`}><div className={styles.previewHead}><div><span>Processed</span><h3>Locked cartoon heads</h3></div><small>Ready for timeline</small></div><video src={resultUrl} controls playsInline /><a href={resultUrl} target="_blank" rel="noreferrer">Open finished video ↗</a></article>}
         </div>
       )}
 
-      <div className="overlayEditor">
-        <span className="eyebrow">HYBRID TIMELINE</span>
-        <h3>Video + costume stills</h3>
-        <p>Add the generated costume images in the exact order they should appear. Hard cuts are intentional for the comedy.</p>
-        <label className="uploadButton">+ Add costume still<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(e)=>{void addStill(e.target.files?.[0]);e.currentTarget.value="";}} /></label>
-        {timeline.map((item,index)=><div key={item.id} className="sceneActions"><strong>{index+1}. {item.label}</strong><span>{item.type==="video"?"Video":"Still"}</span><label>Seconds <input style={{width:72}} type="number" min=".5" max="60" step=".5" value={item.duration} onChange={e=>updateDuration(item.id,Number(e.target.value))}/></label><button type="button" onClick={()=>removeItem(item.id)}>Remove</button></div>)}
-        {hybridBlockReason && <p id="hybrid-video-block" className="statusText" role="status">{hybridBlockReason}</p>}
-        <button type="button" disabled={!timeline.length||hybridBusy||!!hybridBlockReason} aria-describedby={hybridBlockReason ? "hybrid-video-block" : undefined} onClick={()=>void buildHybrid()}>{hybridBusy?"Building hybrid video…":"Build Hybrid Video"}</button>
-        {hybridUrl&&<div className="finalResult"><h3>Hybrid video</h3><video className="finalVideo" src={hybridUrl} controls playsInline/><a className="downloadLink" href={hybridUrl} target="_blank" rel="noreferrer">Open finished hybrid video</a></div>}
+      <div className={styles.processRow}>
+        <div><b>Apply the locked character heads</b><p>This must finish successfully before a timeline containing video can be exported.</p></div>
+        <button className={styles.primaryButton} type="button" onClick={() => void createCartoonVersion()} disabled={hybridBusy || !sourceUrl || status === "uploading" || status === "generating"}>
+          {status === "generating" ? "Tracking faces and applying heads…" : resultUrl ? "Reapply Locked Heads" : "Apply Locked Cartoon Heads"}
+        </button>
       </div>
 
-      <button type="button" onClick={() => void createCartoonVersion()} disabled={hybridBusy || !sourceUrl || status === "uploading" || status === "generating"}>
-        {status === "generating" ? "Tracking faces and applying locked cartoon heads…" : "Apply Locked Cartoon Heads"}
-      </button>
+      {status === "uploading" && <p className={styles.notice}>Uploading recorded video…</p>}
+      {error && <p className={styles.error} role="alert">{error}</p>}
 
-      {status === "uploading" && <p className="statusText">Uploading recorded video…</p>}
-      {error && <p className="errorText">{error}</p>}
-
-      {resultUrl && (
-        <div className="finalResult">
-          <h3>Cartoon face version</h3>
-          <video className="finalVideo" src={resultUrl} controls playsInline />
-          <a className="downloadLink" href={resultUrl} target="_blank" rel="noreferrer">Open finished video</a>
-          <p className="statusText">Original audio is preserved. Review face tracking before posting.</p>
+      <section className={styles.timelinePanel}>
+        <div className={styles.timelineHead}>
+          <div><span className={styles.kicker}>Hybrid timeline</span><h2>Opening + costume stills</h2><p>Add stills in the order they should appear. Hard cuts keep the comedy moving.</p></div>
+          <label className={styles.secondaryButton}>+ Add costume still<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => { void addStill(event.target.files?.[0]); event.currentTarget.value = ""; }} /></label>
         </div>
-      )}
+
+        <div className={styles.timelineList}>
+          {timeline.length ? timeline.map((item, index) => (
+            <div key={item.id} className={styles.timelineItem}>
+              <span className={styles.itemNumber}>{String(index + 1).padStart(2, "0")}</span>
+              <span className={`${styles.mediaIcon} ${item.type === "image" ? styles.imageIcon : ""}`}>{item.type === "video" ? "▶" : "▧"}</span>
+              <div className={styles.itemTitle}><strong>{item.label}</strong><small>{item.type === "video" ? item.url === resultUrl && status === "done" ? "Processed locked-head video" : "Opening video — processing required" : "Costume still"}</small></div>
+              <label className={styles.durationField}>Duration<input type="number" min=".5" max="60" step=".5" value={item.duration} onChange={(event) => updateDuration(item.id, Number(event.target.value))} /><span>sec</span></label>
+              <button className={styles.removeButton} type="button" onClick={() => removeItem(item.id)} aria-label={`Remove ${item.label}`}>Remove</button>
+            </div>
+          )) : <div className={styles.emptyTimeline}><span>+</span><b>Your timeline is empty</b><p>Upload an opening video or add a costume still to begin.</p></div>}
+        </div>
+
+        <div className={styles.exportRow}>
+          <div>{hybridBlockReason ? <p id="hybrid-video-block" className={styles.notice} role="status">{hybridBlockReason}</p> : timeline.length ? <p className={styles.readyMessage}>✓ Timeline is ready to export</p> : <p className={styles.notice}>Add an opening video or costume still to begin.</p>}</div>
+          <button className={styles.exportButton} type="button" disabled={!timeline.length || hybridBusy || !!hybridBlockReason} aria-describedby={hybridBlockReason ? "hybrid-video-block" : undefined} onClick={() => void buildHybrid()}>{hybridBusy ? "Building hybrid video…" : "Build Hybrid Video"}</button>
+        </div>
+
+        {hybridUrl && <article className={`${styles.previewCard} ${styles.hybridResult}`}><div className={styles.previewHead}><div><span>Final export</span><h3>Hybrid video</h3></div><small>Ready</small></div><video src={hybridUrl} controls playsInline /><a href={hybridUrl} target="_blank" rel="noreferrer">Open finished hybrid video ↗</a></article>}
+      </section>
     </section>
   );
 }
