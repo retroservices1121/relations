@@ -7,7 +7,7 @@ import SpeechInputButton from "./SpeechInputButton";
 
 type Mode = "idea" | "script";
 
-export default function NewEpisodeComposer({seriesId="household-nonsense",seriesTitle="Household Nonsense"}:{seriesId?:string;seriesTitle?:string}) {
+export default function NewEpisodeComposer({seriesId,seriesTitle}:{seriesId:string;seriesTitle:string}) {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>("idea");
   const [title, setTitle] = useState("");
@@ -51,9 +51,6 @@ export default function NewEpisodeComposer({seriesId="household-nonsense",series
           setup, escalation, payoff, continuity locks, and editable production
           scenes before any video credits are spent.
         </p>
-        {seriesId === "household-nonsense" && (
-          <a href="/series">Manage series and create a new one →</a>
-        )}
       </div>
       <div className={styles.modeTabs}>
         <button
@@ -89,7 +86,7 @@ export default function NewEpisodeComposer({seriesId="household-nonsense",series
         onChange={(e) => setPrompt(e.target.value)}
         placeholder={
           mode === "idea"
-            ? "Example: Danda says she's only ordering one thing. Packages keep arriving until Joe is buried in boxes, and the last package contains one tiny hair clip."
+            ? "Describe the episode idea, the characters involved, and the turn you want the story to take."
             : "Paste your script or detailed story here. Include the beats you want preserved and we'll turn them into editable scenes."
         }
       />
