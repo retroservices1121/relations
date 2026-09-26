@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createCustomEpisode, getSeries, listCustomEpisodes } from "../../../lib/db";
+import { createCustomEpisode, deleteUnproducedEpisode, getSeries, listCustomEpisodes } from "../../../lib/db";
 import {
   screenplayConfigured,
   writeEpisodeScreenplay,
@@ -75,4 +75,15 @@ export async function POST(request: NextRequest) {
       { status: 500 },
     );
   }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const episodeId = new URL(request.url).searchParams.get("episodeId") || "";
+    if (!/^custom-[a-zA-Z0-9_-]{1,110}$/.test(episodeId)) return NextResponse.json({ error: "Select a queued episode you created." }, { status: 400 });
+    const result = await deleteUnproducedEpisode(episodeId);
+    if (result === "missing") return NextResponse.json({ error: "Episode not found." }, { status: 404 });
+    if (result === "produced") return NextResponse.json({ error: "This episode already has production work. It cannot be deleted from the queue." }, { status: 409 });
+    return NextResponse.json({ deleted: true });
+  } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Could not delete episode." }, { status: 500 }); }
 }

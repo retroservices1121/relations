@@ -19,3 +19,5 @@
     flex-direction: column;
   }
 }
+
+.shell :global(.deleteQueuedEpisode){border:1px solid #d6b4aa;background:#fff6f3;color:#a13e32;border-radius:9px;padding:7px 9px;font-size:10px;font-weight:800;cursor:pointer}.shell :global(.deleteQueuedEpisode:disabled){opacity:.55;cursor:wait}.shell :global(.deleteQueuedEpisodeError){color:#a13e32;font-size:11px;flex-basis:100%}

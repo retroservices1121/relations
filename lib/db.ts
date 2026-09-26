@@ -148,6 +148,27 @@ export async function getCustomEpisode(id: string): Promise<Episode | null> {
     : null;
 }
 
+export async function deleteUnproducedEpisode(id: string) {
+  await ensureSchema();
+  const db = await pool().connect();
+  try {
+    await db.query("BEGIN");
+    const episode = await db.query(`SELECT episode_id FROM relations_custom_episodes WHERE episode_id=$1 FOR UPDATE`, [id]);
+    if (!episode.rowCount) { await db.query("ROLLBACK"); return "missing" as const; }
+    const produced = await db.query(`SELECT
+      EXISTS(SELECT 1 FROM relations_projects WHERE episode_id=$1 AND (posted=TRUE OR NULLIF(final_url,'') IS NOT NULL)) OR
+      EXISTS(SELECT 1 FROM relations_scenes WHERE episode_id=$1 AND NULLIF(video_url,'') IS NOT NULL) OR
+      EXISTS(SELECT 1 FROM relations_assets WHERE episode_id=$1 AND kind IN ('scene','final','narration','soundtrack')) OR
+      EXISTS(SELECT 1 FROM relations_generation_requests WHERE episode_id=$1) AS has_work`, [id]);
+    if (produced.rows[0].has_work) { await db.query("ROLLBACK"); return "produced" as const; }
+    for (const table of ["relations_assets", "relations_narration", "relations_scenes", "relations_projects", "relations_custom_episodes"]) {
+      await db.query(`DELETE FROM ${table} WHERE episode_id=$1`, [id]);
+    }
+    await db.query("COMMIT");
+    return "deleted" as const;
+  } catch (error) { await db.query("ROLLBACK"); throw error; } finally { db.release(); }
+}
+
 function mapSeries(row: Record<string, unknown>): SeriesConfig {
   return { id:String(row.series_id),title:String(row.title),description:String(row.description||""),visualStyle:String(row.visual_style||""),screenplayRules:String(row.screenplay_rules||""),aspectRatio:row.aspect_ratio==="16:9"?"16:9":"9:16",format:row.format==="narrated"?"narrated":row.format==="dialogue"?"dialogue":"silent",musicMode:row.music_mode==="household-theme"?"household-theme":"none",locked:Boolean(row.locked),characters:Array.isArray(row.characters)?row.characters as SeriesConfig["characters"]:[] };
 }
