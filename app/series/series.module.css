@@ -192,3 +192,4 @@
     flex-direction: column;
   }
 }
+.referencePreview{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.referencePreview img{width:92px;height:92px;object-fit:cover;border-radius:10px;border:1px solid #d8cec0}.referencePreview button{border:1px solid #d8cec0;border-radius:9px;background:#fffaf3;padding:8px 10px;cursor:pointer}.characterCard details summary{cursor:pointer;font-size:12px;color:#6f665c}.characterCard details label{margin-top:12px}

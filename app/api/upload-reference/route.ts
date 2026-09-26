@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
-import { fal } from "@fal-ai/client";
 import { dbConfigured, recordAsset } from "@/lib/db";
 import { putR2Object, r2Configured } from "@/lib/r2";
 
-fal.config({ credentials: process.env.FAL_KEY });
 
 export const runtime = "nodejs";
 
@@ -11,9 +9,7 @@ const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 export async function POST(request: Request) {
   try {
-    if (!process.env.FAL_KEY) {
-      return NextResponse.json({ error: "FAL_KEY is not configured on the server." }, { status: 500 });
-    }
+    if (!r2Configured()) return NextResponse.json({ error: "Reference image storage is unavailable." }, { status: 503 });
 
     const formData = await request.formData();
     const file = formData.get("file");
@@ -39,14 +35,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Invalid episode reference." }, { status: 400 });
     }
     let url: string;
+    const extension = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
     if (typeof episodeId === "string") {
-      if (!r2Configured() || !dbConfigured()) return NextResponse.json({ error: "Production storage is required to save references." }, { status: 503 });
-      const extension = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
+      if (!dbConfigured()) return NextResponse.json({ error: "Production storage is required to save references." }, { status: 503 });
       const stored = await putR2Object(`relations/${episodeId}/references/${characterKey}-${crypto.randomUUID()}.${extension}`, Buffer.from(await file.arrayBuffer()), file.type);
       url = stored.url;
       await recordAsset({ episodeId, kind: "reference", url, label: `${characterKey} reference` });
     } else {
-      url = await fal.storage.upload(file);
+      const stored = await putR2Object(`relations/series-references/${crypto.randomUUID()}.${extension}`, Buffer.from(await file.arrayBuffer()), file.type);
+      url = stored.url;
     }
     return NextResponse.json({ url, contentType: file.type });
   } catch (error) {
