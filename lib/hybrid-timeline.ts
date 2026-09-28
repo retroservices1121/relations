@@ -4,21 +4,15 @@ export type TimelineItem = {
   url: string;
   duration: number;
   label: string;
+  sourceUrl?: string;
+  processed?: boolean;
 };
 
-// This workspace has one opening video; stills and timing remain user-owned.
-export function replaceTimelineVideo(items: TimelineItem[], url: string, label: string) {
-  return items.map((item) => item.type === "video" ? { ...item, url, label } : item);
-}
-
-export function hybridVideoBlockReason(items: TimelineItem[], status: string, resultUrl: string) {
+export function hybridVideoBlockReason(items: TimelineItem[], processingCount = 0) {
   const videos = items.filter((item) => item.type === "video");
   if (!videos.length) return "";
-  if (status === "generating") {
-    return "Locked cartoon heads are still processing. Wait for completion before building the hybrid video.";
-  }
-  if (status !== "done" || !resultUrl || videos.some((item) => item.url !== resultUrl)) {
-    return "Apply Locked Cartoon Heads successfully before building the hybrid video. The original recording cannot be exported in this timeline.";
-  }
+  if (processingCount > 0) return `${processingCount} video${processingCount === 1 ? "" : "s"} still processing locked cartoon heads.`;
+  const pending = videos.filter((item) => !item.processed);
+  if (pending.length) return `Apply Locked Cartoon Heads to ${pending.length} video${pending.length === 1 ? "" : "s"} before export. Raw recordings cannot be exported.`;
   return "";
 }
