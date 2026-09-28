@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { hybridVideoBlockReason, type TimelineItem } from "@/lib/hybrid-timeline";
 import styles from "./CartoonFaceWorkspace.module.css";
+import EpisodeEditor, { type EditorAudio, type EditorText } from "./EpisodeEditor";
 
 type CastKey = "joe" | "danda";
 type Status = "idle" | "uploading" | "ready" | "generating" | "done" | "error";
@@ -123,6 +124,10 @@ export default function CartoonFaceWorkspace() {
   }
   function updateDuration(id:string,value:number){setHybridUrl("");setTimeline(current=>current.map(item=>item.id===id?{...item,duration:Math.max(.5,Math.min(60,value||.5))}:item));}
   function removeItem(id:string){setHybridUrl("");setTimeline(current=>current.filter(item=>item.id!==id));}
+  async function buildEdited(payload:{items:TimelineItem[];texts:EditorText[];audio:EditorAudio[]}){
+    const blocked=hybridVideoBlockReason(payload.items,processingIds.length);if(blocked){setError(blocked);return;}setHybridBusy(true);setError("");setHybridUrl("");
+    try{const r=await fetch("/api/render-hybrid",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});const d=await r.json();if(!r.ok)throw Error(d.error||"Episode export failed.");setHybridUrl(d.url);}catch(e){setError(e instanceof Error?e.message:"Episode export failed.");}finally{setHybridBusy(false);}
+  }
   async function buildHybrid(){
     const blocked = hybridVideoBlockReason(timeline, processingIds.length);
     if (blocked) { setError(blocked); return; }
@@ -203,6 +208,8 @@ export default function CartoonFaceWorkspace() {
 
       {status === "uploading" && <p className={styles.notice}>Uploading recorded video…</p>}
       {error && <p className={styles.error} role="alert">{error}</p>}
+
+      <EpisodeEditor items={timeline} onItemsChange={(items)=>{setTimeline(items);setHybridUrl("");}} onExport={(payload)=>void buildEdited(payload)} exporting={hybridBusy} />
 
       <section className={styles.timelinePanel}>
         <div className={styles.timelineHead}>
