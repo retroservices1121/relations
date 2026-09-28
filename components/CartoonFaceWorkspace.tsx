@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { hybridVideoBlockReason, replaceTimelineVideo, type TimelineItem } from "@/lib/hybrid-timeline";
+import { hybridVideoBlockReason, type TimelineItem } from "@/lib/hybrid-timeline";
 import styles from "./CartoonFaceWorkspace.module.css";
 
 type CastKey = "joe" | "danda";
@@ -14,6 +14,7 @@ export default function CartoonFaceWorkspace() {
   const [status, setStatus] = useState<Status>("idle");
   const [sourceUrl, setSourceUrl] = useState("");
   const [resultUrl, setResultUrl] = useState("");
+  const [processingIds, setProcessingIds] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [cast, setCast] = useState<CastKey[]>(["joe", "danda"]);
   const [references, setReferences] = useState<Record<CastKey, string>>({ joe: "", danda: "" });
@@ -30,46 +31,66 @@ export default function CartoonFaceWorkspace() {
   }, []);
 
   const missing = useMemo(() => cast.filter((key) => !references[key]), [cast, references]);
-  const hybridBlockReason = hybridVideoBlockReason(timeline, status, resultUrl);
+  const hybridBlockReason = hybridVideoBlockReason(timeline, processingIds.length);
 
   function toggleCast(key: CastKey) {
     if (cast.length === 1 && cast.includes(key)) return;
-    setResultUrl("");
     setHybridUrl("");
     setError("");
-    if (sourceUrl) {
-      setStatus("ready");
-      setTimeline((current) => replaceTimelineVideo(current, sourceUrl, "Opening video — locked heads required"));
-    }
     setCast((current) =>
       current.includes(key)
-        ? current.length === 1 ? current : current.filter((value) => value !== key)
+        ? current.filter((value) => value !== key)
         : [...current, key].slice(0, 2),
     );
   }
 
-  async function uploadVideo(file?: File) {
-    if (!file) return;
-    setStatus("uploading");
-    setError("");
-    setResultUrl("");
-    setSourceUrl("");
-    setHybridUrl("");
+  async function uploadVideos(files?: FileList | null) {
+    if (!files?.length) return;
+    setStatus("uploading"); setError(""); setHybridUrl("");
     try {
-      const form = new FormData();
-      form.append("file", file);
-      const response = await fetch("/api/upload-video", { method: "POST", body: form });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Upload failed.");
-      setSourceUrl(data.url);
-      setTimeline((current) => current.some((item) => item.type === "video")
-        ? replaceTimelineVideo(current, data.url, "Opening video — locked heads required")
-        : [{ id: crypto.randomUUID(), type: "video", url: data.url, duration: 4, label: "Opening video — locked heads required" }, ...current]);
+      const uploaded: TimelineItem[] = [];
+      for (const file of Array.from(files)) {
+        const form = new FormData(); form.append("file", file);
+        const response = await fetch("/api/upload-video", { method: "POST", body: form });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || `Upload failed for ${file.name}.`);
+        uploaded.push({ id: crypto.randomUUID(), type: "video", url: data.url, sourceUrl: data.url, duration: 4, label: file.name, processed: false });
+      }
+      setTimeline((current) => [...current, ...uploaded]);
+      setSourceUrl(uploaded[0]?.url || "");
       setStatus("ready");
-    } catch (err) {
-      setStatus("error");
-      setError(err instanceof Error ? err.message : "Upload failed.");
-    }
+    } catch (err) { setStatus("error"); setError(err instanceof Error ? err.message : "Upload failed."); }
+  }
+
+  async function processOne(item: TimelineItem) {
+    const source = item.sourceUrl || item.url;
+    setProcessingIds((current) => [...current, item.id]);
+    setTimeline((current) => current.map((x) => x.id === item.id ? { ...x, label: `${item.label.replace(/ —.*/, "")} — applying locked heads…` } : x));
+    try {
+      const response = await fetch("/api/cartoon-face", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ videoUrl: source, cast, referenceUrls: references }) });
+      const data = await response.json(); if (!response.ok) throw new Error(data.error || "Could not start locked-head edit.");
+      for (let attempt=0; attempt<180; attempt+=1) {
+        await sleep(3000);
+        const poll=await fetch(`/api/cartoon-face?requestId=${encodeURIComponent(data.requestId)}`,{cache:"no-store"}); const p=await poll.json();
+        if(!poll.ok||p.status==="FAILED") throw new Error(p.error||"Locked-head processing failed.");
+        if(p.status==="COMPLETED"){
+          if(typeof p.videoUrl!=="string"||!p.videoUrl.trim()||p.videoUrl===source) throw new Error("Provider did not return a processed video.");
+          const names=cast.map(k=>k==="joe"?"Joe":"Danda").join(" and ");
+          setTimeline(current=>current.map(x=>x.id===item.id?{...x,url:p.videoUrl,sourceUrl:source,processed:true,label:`${item.label.replace(/ —.*/, "")} — locked ${names} applied`}:x));
+          setResultUrl(p.videoUrl); return;
+        }
+      }
+      throw new Error("The edit is still running. Try again shortly.");
+    } finally { setProcessingIds(current=>current.filter(id=>id!==item.id)); }
+  }
+
+  async function processAllVideos() {
+    const videos=timeline.filter(item=>item.type==="video"&&!item.processed);
+    if(!videos.length) return;
+    if(missing.length){setError(`Upload the locked ${missing.map(k=>k==="joe"?"Joe":"Danda").join(" and ")} reference first.`);return;}
+    setStatus("generating");setError("");setHybridUrl("");
+    try { for(const item of videos) await processOne(item); setStatus("done"); }
+    catch(err){setStatus("error");setError(err instanceof Error?err.message:"Locked-head processing failed.");}
   }
 
   async function addStill(file?: File) {
@@ -103,57 +124,13 @@ export default function CartoonFaceWorkspace() {
   function updateDuration(id:string,value:number){setHybridUrl("");setTimeline(current=>current.map(item=>item.id===id?{...item,duration:Math.max(.5,Math.min(60,value||.5))}:item));}
   function removeItem(id:string){setHybridUrl("");setTimeline(current=>current.filter(item=>item.id!==id));}
   async function buildHybrid(){
-    const blocked = hybridVideoBlockReason(timeline, status, resultUrl);
+    const blocked = hybridVideoBlockReason(timeline, processingIds.length);
     if (blocked) { setError(blocked); return; }
     if(!timeline.length)return;setHybridBusy(true);setError("");setHybridUrl("");
     try{const r=await fetch("/api/render-hybrid",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({items:timeline})});const d=await r.json();if(!r.ok)throw Error(d.error||"Hybrid export failed.");setHybridUrl(d.url);}
     catch(e){setError(e instanceof Error?e.message:"Hybrid export failed.");}finally{setHybridBusy(false);}
   }
 
-  async function createCartoonVersion() {
-    if (!sourceUrl) return;
-    if (missing.length) {
-      setError(`Upload the locked ${missing.map((key) => key === "joe" ? "Joe" : "Danda").join(" and ")} cartoon reference in Step 03 before applying locked heads.`);
-      return;
-    }
-    setStatus("generating");
-    setError("");
-    setResultUrl("");
-    setHybridUrl("");
-    setTimeline((current) => replaceTimelineVideo(current, sourceUrl, "Opening video — applying locked cartoon heads…"));
-    try {
-      const response = await fetch("/api/cartoon-face", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ videoUrl: sourceUrl, cast, referenceUrls: references }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not start the edit.");
-      const requestId = data.requestId;
-      for (let attempt = 0; attempt < 180; attempt += 1) {
-        await sleep(3000);
-        const poll = await fetch(`/api/cartoon-face?requestId=${encodeURIComponent(requestId)}`, { cache: "no-store" });
-        const pollData = await poll.json();
-        if (!poll.ok) throw new Error(pollData.error || "Generation failed.");
-        if (pollData.status === "FAILED") throw new Error(pollData.error || "Locked-head processing failed. Please try again.");
-        if (pollData.status === "COMPLETED") {
-          if (typeof pollData.videoUrl !== "string" || !pollData.videoUrl.trim() || pollData.videoUrl === sourceUrl) {
-            throw new Error("Locked-head processing did not return a processed video. Please try again before building the hybrid video.");
-          }
-          setResultUrl(pollData.videoUrl);
-          const names = cast.map((key) => key === "joe" ? "Joe" : "Danda").join(" and ");
-          setTimeline((current) => replaceTimelineVideo(current, pollData.videoUrl, `Opening video — locked ${names} cartoon ${cast.length === 1 ? "head" : "heads"} applied`));
-          setStatus("done");
-          return;
-        }
-      }
-      throw new Error("The edit is still running. Try again shortly.");
-    } catch (err) {
-      setStatus("error");
-      setError(err instanceof Error ? err.message : "Generation failed.");
-      setTimeline((current) => replaceTimelineVideo(current, sourceUrl, "Opening video — locked-head processing failed"));
-    }
-  }
 
   return (
     <section className={styles.workspace}>
@@ -171,10 +148,10 @@ export default function CartoonFaceWorkspace() {
       <div className={styles.setupGrid}>
         <section className={styles.setupCard}>
           <div className={styles.stepTop}><span>01</span><b>Upload opening</b></div>
-          <p>Choose the moving part of your performance. MP4 and MOV are supported.</p>
+          <p>Choose one or several recorded clips at once. MP4 and MOV are supported.</p>
           <label className={styles.fileButton}>
-            {sourceUrl ? "Replace recording" : "Choose recording"}
-            <input type="file" accept="video/mp4,video/quicktime,.mp4,.mov" onChange={(event) => void uploadVideo(event.target.files?.[0])} disabled={hybridBusy || status === "uploading" || status === "generating"} />
+            Choose videos
+            <input type="file" multiple accept="video/mp4,video/quicktime,.mp4,.mov" onChange={(event) => { void uploadVideos(event.target.files); event.currentTarget.value=""; }} disabled={hybridBusy || status === "uploading" || status === "generating"} />
           </label>
         </section>
 
@@ -211,17 +188,16 @@ export default function CartoonFaceWorkspace() {
         </section>
       </div>
 
-      {(sourceUrl || resultUrl) && (
+      {timeline.some(item=>item.type==="video") && (
         <div className={styles.previewGrid}>
-          {sourceUrl && <article className={styles.previewCard}><div className={styles.previewHead}><div><span>Source</span><h3>Original recording</h3></div><small>Live action</small></div><video src={sourceUrl} controls playsInline /></article>}
-          {resultUrl && <article className={`${styles.previewCard} ${styles.processedCard}`}><div className={styles.previewHead}><div><span>Processed</span><h3>Locked cartoon heads</h3></div><small>Ready for timeline</small></div><video src={resultUrl} controls playsInline /><a href={resultUrl} target="_blank" rel="noreferrer">Open finished video ↗</a></article>}
+          {timeline.filter(item=>item.type==="video").map((item,index)=><article className={`${styles.previewCard} ${item.processed?styles.processedCard:""}`} key={item.id}><div className={styles.previewHead}><div><span>Video {index+1}</span><h3>{item.label.replace(/ —.*/, "")}</h3></div><small>{item.processed?"Locked head ready":processingIds.includes(item.id)?"Processing":"Needs locked head"}</small></div><video src={item.url} controls playsInline />{item.processed&&<a href={item.url} target="_blank" rel="noreferrer">Open processed video ↗</a>}</article>)}
         </div>
       )}
 
       <div className={styles.processRow}>
-        <div><b>Apply the locked character heads</b><p>This must finish successfully before a timeline containing video can be exported.</p></div>
-        <button className={styles.primaryButton} type="button" onClick={() => void createCartoonVersion()} disabled={hybridBusy || !sourceUrl || status === "uploading" || status === "generating"}>
-          {status === "generating" ? "Tracking faces and applying heads…" : resultUrl ? "Reapply Locked Heads" : "Apply Locked Cartoon Heads"}
+        <div><b>Apply the locked character heads</b><p>Batch-process every unprocessed video with the selected locked character head before editing or export.</p></div>
+        <button className={styles.primaryButton} type="button" onClick={() => void processAllVideos()} disabled={hybridBusy || !timeline.some(item=>item.type==="video"&&!item.processed) || status === "uploading" || status === "generating"}>
+          {status === "generating" ? `Processing ${processingIds.length || 1} video…` : "Apply Locked Heads to All Videos"}
         </button>
       </div>
 
@@ -239,7 +215,7 @@ export default function CartoonFaceWorkspace() {
             <div key={item.id} className={styles.timelineItem}>
               <span className={styles.itemNumber}>{String(index + 1).padStart(2, "0")}</span>
               <span className={`${styles.mediaIcon} ${item.type === "image" ? styles.imageIcon : ""}`}>{item.type === "video" ? "▶" : "▧"}</span>
-              <div className={styles.itemTitle}><strong>{item.label}</strong><small>{item.type === "video" ? item.url === resultUrl && status === "done" ? "Processed locked-head video" : "Opening video — processing required" : "Costume still"}</small></div>
+              <div className={styles.itemTitle}><strong>{item.label}</strong><small>{item.type === "video" ? item.processed ? "Processed locked-head video" : "Video — locked-head processing required" : "Costume still"}</small></div>
               <label className={styles.durationField}>Duration<input type="number" min=".5" max="60" step=".5" value={item.duration} onChange={(event) => updateDuration(item.id, Number(event.target.value))} /><span>sec</span></label>
               <button className={styles.removeButton} type="button" onClick={() => removeItem(item.id)} aria-label={`Remove ${item.label}`}>Remove</button>
             </div>
