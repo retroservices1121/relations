@@ -12,6 +12,9 @@ export const maxDuration = 300;
 const execFileAsync = promisify(execFile);
 const ffmpegPath = process.env.FFMPEG_PATH || "ffmpeg";
 
+type EditorText = { text:string; start:number; end:number; position:"top"|"middle"|"bottom" };
+type EditorAudio = { url:string; start:number; volume:number; kind:"music"|"sfx" };
+
 type Item = {
   type: "video" | "image";
   url: string;
@@ -38,6 +41,8 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
+    const texts:EditorText[] = Array.isArray(body.texts) ? body.texts.filter((x:unknown)=>x&&typeof x==="object"&&typeof (x as EditorText).text==="string") : [];
+    const audio:EditorAudio[] = Array.isArray(body.audio) ? body.audio.filter((x:unknown)=>x&&typeof x==="object"&&typeof (x as EditorAudio).url==="string") : [];
     const items = (Array.isArray(body.items) ? body.items : []).filter(
       (value: unknown): value is Item => {
         if (!value || typeof value !== "object") return false;
@@ -161,7 +166,13 @@ export async function POST(request: Request) {
       joined,
     ]);
 
-    const bytes = await fs.readFile(joined);
+    let finalPath=joined;
+    if(texts.length){
+      const draw=texts.filter(t=>t.text.trim()).map(t=>{const y=t.position==="top"?"120":t.position==="middle"?"(h-text_h)/2":"h-text_h-140";const safe=t.text.replace(/\\/g,"\\\\").replace(/:/g,"\\:").replace(/'/g,"\\'");return `drawtext=text='${safe}':fontcolor=white:fontsize=46:borderw=4:bordercolor=black:x=(w-text_w)/2:y=${y}:enable='between(t,${Math.max(0,t.start)},${Math.max(t.start+.1,t.end)})'`;}).join(",");
+      if(draw){const out=path.join(dir,"texted.mp4");await execFileAsync(ffmpegPath,["-y","-i",finalPath,"-vf",draw,"-c:v","libx264","-preset","veryfast","-crf","20","-c:a","copy",out]);finalPath=out;}
+    }
+    for(let i=0;i<audio.length;i++){const layer=audio[i];const input=path.join(dir,`audio-${i}`);await download(layer.url,input);const out=path.join(dir,`mixed-${i}.mp4`);const delay=Math.max(0,Math.round(layer.start*1000));const volume=Math.max(0,Math.min(1,Number(layer.volume)||0));await execFileAsync(ffmpegPath,["-y","-i",finalPath,"-i",input,"-filter_complex",`[1:a]volume=${volume},adelay=${delay}|${delay}[add];[0:a][add]amix=inputs=2:duration=first:dropout_transition=0[a]`,"-map","0:v:0","-map","[a]","-c:v","copy","-c:a","aac","-ar","48000","-ac","2",out]);finalPath=out;}
+    const bytes = await fs.readFile(finalPath);
     const stored = await putR2Object(
       `relations/hybrid/final-${Date.now()}.mp4`,
       bytes,
