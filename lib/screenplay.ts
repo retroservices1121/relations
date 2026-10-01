@@ -135,6 +135,12 @@ Bed and sleep scenes use believable sleep clothing and no shoes on a bed unless 
 
 Use 2 to 12 scenes. Use 4 to 12 seconds per scene. Prefer the scene count required by the creator's actual story beats; do not collapse explicitly separate visual beats just to make the episode shorter. Return only the requested JSON.`;
 
+const MARKETING_ADDENDUM = `This request is for a promotional video for the selected recurring series. Build one coherent, editable video sequence rather than a list of unrelated campaign ideas.
+
+Give every scene a marketing job. Open with a visually immediate hook, then show an honest story moment or series premise as context or proof, and finish with a clean conversion beat. The sequence must still feel like the series rather than a generic advertisement. Use only the supplied series facts and creator brief. Do not invent view counts, reviews, awards, product claims, release dates, offers, or audience proof.
+
+Treat the approved call to action as overlay copy in the caption field. Do not ask the video model to render words, logos, interface elements, or captions inside the generated image. Keep essential subjects away from the edges so the final overlay and platform controls have clear space. Variants, channels, and campaign strategy are outside this deliverable: return one production-ready promo sequence.`;
+
 function requestedSceneCount(premise: string) {
   const normalized = premise.toLowerCase();
   const explicit = [
@@ -272,7 +278,7 @@ function screenplayModel() {
 
 export async function writeEpisodeScreenplay(input: {
   premise: string;
-  mode: "idea" | "script";
+  mode: "idea" | "story" | "script" | "marketing";
   series?: SeriesConfig;
 }): Promise<{ title: string; hook: string; scenes: Scene[] }> {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
@@ -286,7 +292,9 @@ export async function writeEpisodeScreenplay(input: {
   const instruction =
     input.mode === "script"
       ? "Adapt the creator-provided script into production scenes. Preserve every creator-requested beat, its plot, scene order, joke, and ending. Never omit a listed beat. Improve only clarity, animation blocking, and continuity."
-      : "Develop the creator's idea into a complete short animated episode. Preserve every creator-requested beat in order. Never omit a listed request, costume, action, caption, or transformation. If the creator says each beat must be a separate scene, do not merge them.";
+      : input.mode === "marketing"
+        ? "Turn the campaign and creative brief into one short promotional video for this series. Use a hook, honest context or proof from the supplied premise, and a final conversion beat. Preserve any approved call to action exactly in the final scene caption."
+        : "Develop the creator's idea into a complete short animated episode. Preserve every creator-requested beat in order. Never omit a listed request, costume, action, caption, or transformation. If the creator says each beat must be a separate scene, do not merge them.";
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 90000);
   try {
@@ -299,7 +307,13 @@ export async function writeEpisodeScreenplay(input: {
       body: JSON.stringify({
         model,
         messages: [
-          { role: "system", content: SYSTEM_PROMPT },
+          {
+            role: "system",
+            content:
+              input.mode === "marketing"
+                ? `${SYSTEM_PROMPT}\n\n${MARKETING_ADDENDUM}`
+                : SYSTEM_PROMPT,
+          },
           {
             role: "user",
             content: `${instruction}\n\nSELECTED SERIES BIBLE:\nTitle: ${series.title}\nDescription: ${series.description}\nFormat: ${series.format} Aspect ratio: ${series.aspectRatio || "9:16"}\nVisual style: ${series.visualStyle}\nScreenplay rules: ${series.screenplayRules}\nAllowed cast:\n${series.characters.map((character) => `- key=${character.key}; name=${character.name}; ${character.description}`).join("\n")}\nIn every characters array, use the exact key values listed above, never display names.\n\nCREATOR INPUT:\n${input.premise}`,

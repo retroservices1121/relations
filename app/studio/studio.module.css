@@ -13,11 +13,125 @@
   font-size: 11px;
 }
 
+.modeCards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 24px 0 12px;
+}
+
+.modeCards button {
+  min-height: 132px;
+  padding: 16px;
+  border: 1px solid #d8cec0;
+  border-radius: 15px;
+  background: #f4eee5;
+  color: #29251f;
+  text-align: left;
+  cursor: pointer;
+}
+
+.modeCards button > span,
+.modeCards button > strong,
+.modeCards button > small { display: block; }
+
+.modeCards button > span {
+  color: #a44e3f;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+
+.modeCards button > strong {
+  margin: 8px 0 6px;
+  font-family: Georgia, serif;
+  font-size: 20px;
+}
+
+.modeCards button > small {
+  color: #766c61;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.modeCards .activeModeCard {
+  border-color: #20201d;
+  background: #20201d;
+  color: #fff;
+  box-shadow: 0 10px 24px rgba(32, 32, 29, .14);
+}
+
+.modeCards .activeModeCard > span { color: #e39a89; }
+.modeCards .activeModeCard > small { color: #c9c1b7; }
+
+.modeSummary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  color: #766c61;
+  font-size: 11px;
+}
+
+.modeSummary span {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #eaded1;
+  color: #7d473c;
+  padding: 6px 9px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+.modeSummary p { margin: 0; }
+
+.campaignFields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 0;
+  padding: 16px;
+  border: 1px solid #dfd3c4;
+  border-radius: 15px;
+  background: #f5efe7;
+}
+
+.campaignFields label {
+  display: grid;
+  gap: 6px;
+  color: #625a51;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.campaignFields input,
+.campaignFields select {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid #d7cdc0;
+  border-radius: 10px;
+  background: #fff;
+  color: #27231f;
+  font: inherit;
+  font-size: 12px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
 @media (max-width: 640px) {
   .composerPromptTools {
     align-items: flex-start;
     flex-direction: column;
   }
+
+  .modeCards,
+  .campaignFields { grid-template-columns: 1fr; }
+  .modeCards button { min-height: auto; }
+  .modeSummary { align-items: flex-start; flex-direction: column; }
 }
 
 .shell :global(.deleteQueuedEpisode){border:1px solid #d6b4aa;background:#fff6f3;color:#a13e32;border-radius:9px;padding:7px 9px;font-size:10px;font-weight:800;cursor:pointer}.shell :global(.deleteQueuedEpisode:disabled){opacity:.55;cursor:wait}.shell :global(.deleteQueuedEpisodeError){color:#a13e32;font-size:11px;flex-basis:100%}
