@@ -57,45 +57,10 @@ export function compactTrendSegments(duration: number, maximum = 15, minimum = 3
   });
 }
 
-export function shotAwareTrendSegments(duration: number, sceneCuts: number[], maximum = 15, maxSegments = 12) {
-  if (!Number.isFinite(duration) || duration < 4) {
-    throw new Error("Trend video must be at least 4 seconds long.");
-  }
-  const cuts: number[] = [];
-  for (const value of sceneCuts.filter(Number.isFinite).sort((a, b) => a - b)) {
-    if (value < 0.75 || value > duration - 0.75) continue;
-    if (cuts.length && value - cuts[cuts.length - 1] < 0.75) continue;
-    cuts.push(value);
-  }
-  const boundaries = [0, ...cuts, duration];
-  let parts: Array<{ start: number; duration: number }> = [];
-  for (let index = 0; index < boundaries.length - 1; index += 1) {
-    const start = boundaries[index];
-    const shotDuration = boundaries[index + 1] - start;
-    const count = Math.ceil(shotDuration / maximum);
-    const size = shotDuration / count;
-    for (let part = 0; part < count; part += 1) {
-      parts.push({ start: start + part * size, duration: part === count - 1 ? shotDuration - part * size : size });
-    }
-  }
-  while (parts.length > maxSegments) {
-    let mergeIndex = -1;
-    let smallest = Number.POSITIVE_INFINITY;
-    for (let index = 0; index < parts.length - 1; index += 1) {
-      const combined = parts[index].duration + parts[index + 1].duration;
-      if (combined <= maximum && combined < smallest) { mergeIndex = index; smallest = combined; }
-    }
-    if (mergeIndex < 0) break;
-    parts.splice(mergeIndex, 2, { start: parts[mergeIndex].start, duration: smallest });
-  }
-  if (parts.length > maxSegments) return compactTrendSegments(duration, maximum, 3);
-  return parts.map((part, index) => ({ index, ...part }));
-}
-
 export function klingO3TrendPrompt() {
   return `PRECISE VIDEO EDIT. Preserve @Video1's environment, furniture, rocking chairs, props, background, lighting, camera angle, framing, cuts, subject positions, posture, timing and motion exactly. The only visual edit is replacing the two complete performers.
 FACIAL STATE: @Image1 defines Joe's exact resting closed-lip face. @Image2 defines Danda's exact resting closed-lip face. Keep those expressions unchanged throughout the clip. Each character's lips remain one stable closed line and each jaw remains in the same resting position in every frame. Preserve eye and head movement while holding this exact facial state.
-Replace every adult male performer in @Video1 with Joe from @Element1, including any shot or close-up where he appears alone. Replace every adult female performer in @Video1 with Danda from @Element2, including any shot or close-up where she appears alone. When both appear, Joe is normally on the left and Danda is normally on the right. Replace their entire visible bodies: head, hair, face, neck, torso, arms, hands, legs, feet and clothing.
+Replace the complete performer on the LEFT in @Video1 with Joe from @Element1. Replace the complete performer on the RIGHT in @Video1 with Danda from @Element2. Replace their entire visible bodies: head, hair, face, neck, torso, arms, hands, legs, feet and clothing.
 @Element1 is the authoritative Joe design: exact locked cartoon face, dark tousled hair, full beard, average build, black T-shirt, blue jeans and white sneakers. @Element2 is the authoritative Danda design: exact locked cartoon face, softly curvy build, coral-red shirt, black ankle pants, white sneakers, gold hoop earrings and very long highlighted dark-brown hair extending toward mid-back.
 Keep Joe on the left and Danda on the right. Render only these two replacements in the clean Household Nonsense hand-drawn 2D cartoon style, stable across every frame. Keep all non-character pixels visually consistent with @Video1 from beginning to end. Output clean imagery without added people, props, text, captions, logos, watermarks or letter-like shapes.`;
 }
