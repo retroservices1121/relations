@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import styles from "./CartoonFaceWorkspace.module.css";
 
 type Character = "joe" | "danda";
+type TrendProvider = "higgsfield-genjutsu" | "fal-minimax";
 type Job = { requestId: string; index: number; duration: number };
 type Stage = "idle" | "uploading" | "ready" | "processing" | "assembling" | "done" | "error";
 
@@ -13,6 +14,7 @@ const referenceKey = (character: Character) => `relations:trend-remake:full-body
 export default function TrendRemakePanel() {
   const [sourceUrl, setSourceUrl] = useState("");
   const [references, setReferences] = useState<Record<Character, string>>({ joe: "", danda: "" });
+  const [provider, setProvider] = useState<TrendProvider>("higgsfield-genjutsu");
   const [uploadingReference, setUploadingReference] = useState<Character | null>(null);
   const [stage, setStage] = useState<Stage>("idle");
   const [progress, setProgress] = useState("");
@@ -58,19 +60,19 @@ export default function TrendRemakePanel() {
     if (!references.joe || !references.danda) { setError("Upload the full-body Joe and Danda images first."); return; }
     setStage("processing"); setProgress("Preparing the source video…"); setError(""); setWithAudioUrl(""); setSilentUrl("");
     try {
-      const started = await fetch("/api/trend-remake", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "start", videoUrl: sourceUrl, referenceUrls: references }) });
+      const started = await fetch("/api/trend-remake", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "start", provider, videoUrl: sourceUrl, referenceUrls: references }) });
       const startData = await started.json();
       if (!started.ok) throw Error(startData.error || "Could not start the trend remake.");
       const jobs = startData.jobs as Job[];
       if (!Array.isArray(jobs) || !jobs.length) throw Error("No trend-remake jobs were created.");
-      let finished: Array<{ requestId: string; status: string; url?: string }> = [];
+      let finished: Array<{ requestId: string; status: string; url?: string; error?: string }> = [];
       for (let attempt = 0; attempt < 240; attempt += 1) {
         await sleep(5000);
-        const response = await fetch(`/api/trend-remake?requestIds=${encodeURIComponent(jobs.map((job) => job.requestId).join(","))}`, { cache: "no-store" });
+        const response = await fetch(`/api/trend-remake?provider=${encodeURIComponent(provider)}&requestIds=${encodeURIComponent(jobs.map((job) => job.requestId).join(","))}`, { cache: "no-store" });
         const data = await response.json();
         if (!response.ok) throw Error(data.error || "Could not check the trend remake.");
         finished = Array.isArray(data.segments) ? data.segments : [];
-        if (finished.some((item) => item.status === "FAILED")) throw Error("One section could not be transformed. Please try the remake again.");
+        if (finished.some((item) => item.status === "FAILED")) throw Error(finished.find((item) => item.status === "FAILED")?.error || "One section could not be transformed. Please try the remake again.");
         const completed = finished.filter((item) => item.status === "COMPLETED" && item.url).length;
         setProgress(`Transforming Joe and Danda: ${completed} of ${jobs.length} sections ready…`);
         if (completed === jobs.length) break;
@@ -89,13 +91,17 @@ export default function TrendRemakePanel() {
   const busy = stage === "uploading" || stage === "processing" || stage === "assembling";
   return <section className={styles.trendPanel}>
     <div className={styles.trendHeading}>
-      <div><span className={styles.kicker}>One-time trend remake</span><h2>Full Cartoon Trend Remake</h2><p>Turn both performers into full-body Joe and Danda while preserving the reference choreography, set, microphone, cuts and timing.</p></div>
+      <div><span className={styles.kicker}>Performance recasting</span><h2>Full Cartoon Trend Remake</h2><p>Turn both performers into full-body Joe and Danda while preserving the reference choreography, set, cuts and timing. Test Higgsfield Genjutsu or compare it with the existing fal route.</p></div>
       <span className={`${styles.stateBadge} ${stage === "done" ? styles.stateReady : ""}`}>{stage === "done" ? "Remake ready" : busy ? "Processing" : "Setup required"}</span>
+    </div>
+    <div className={styles.providerPicker} role="radiogroup" aria-label="Trend remake provider">
+      <button type="button" role="radio" aria-checked={provider === "higgsfield-genjutsu"} className={provider === "higgsfield-genjutsu" ? styles.activeProvider : ""} disabled={busy} onClick={() => { setProvider("higgsfield-genjutsu"); setWithAudioUrl(""); setSilentUrl(""); setStage(sourceUrl ? "ready" : "idle"); }}><span>Recommended test</span><strong>Higgsfield Genjutsu</strong><small>Motion Transfer · 720p · approximately $0.16–$0.34/sec</small></button>
+      <button type="button" role="radio" aria-checked={provider === "fal-minimax"} className={provider === "fal-minimax" ? styles.activeProvider : ""} disabled={busy} onClick={() => { setProvider("fal-minimax"); setWithAudioUrl(""); setSilentUrl(""); setStage(sourceUrl ? "ready" : "idle"); }}><span>Comparison route</span><strong>fal · MiniMax H3 Max</strong><small>Reference-to-video · 768p · existing workflow</small></button>
     </div>
     <div className={styles.trendSteps}>
       <section className={styles.setupCard}><div className={styles.stepTop}><span>01</span><b>Upload trend video</b></div><p>Use the original MP4 or MOV. Videos from 4 to 60 seconds are supported.</p><label className={styles.fileButton}>{sourceUrl ? "Replace trend video" : "Choose trend video"}<input type="file" accept="video/mp4,video/quicktime,.mp4,.mov" disabled={busy} onChange={(event) => { void uploadVideo(event.target.files?.[0]); event.currentTarget.value = ""; }} /></label>{sourceUrl && <small className={styles.uploadReady}>✓ Trend video ready</small>}</section>
       <section className={styles.setupCard}><div className={styles.stepTop}><span>02</span><b>Upload full-body characters</b></div><p>Joe replaces the left performer. Danda replaces the right performer.</p><div className={styles.referenceList}>{(["joe", "danda"] as Character[]).map((character) => { const ready = Boolean(references[character]); const name = character === "joe" ? "Joe" : "Danda"; return <div className={styles.referenceRow} key={character}>{ready ? <img src={references[character]} alt={`${name} full-body reference`} /> : <span className={styles.referencePlaceholder}>{name[0]}</span>}<span className={styles.referenceName}><i className={ready ? styles.readyDot : styles.missingDot} />{name} full body <b>{ready ? "Ready" : "Missing"}</b></span><label className={styles.referenceButton}>{uploadingReference === character ? "Uploading…" : ready ? "Replace" : "Upload"}<input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy || uploadingReference !== null} onChange={(event) => { void uploadReference(character, event.target.files?.[0]); event.currentTarget.value = ""; }} /></label></div>; })}</div></section>
-      <section className={styles.setupCard}><div className={styles.stepTop}><span>03</span><b>Create both exports</b></div><p>Relations processes long clips in balanced sections, reconnects them, and restores the source audio. Character transformation uses your fal.ai credits.</p><button className={styles.primaryButton} type="button" disabled={busy || !sourceUrl || !references.joe || !references.danda} onClick={() => void createTrendRemake()}>{stage === "processing" ? "Transforming Characters…" : stage === "assembling" ? "Building Final Videos…" : stage === "done" ? "Regenerate Trend Remake" : "Create Joe + Danda Remake"}</button></section>
+      <section className={styles.setupCard}><div className={styles.stepTop}><span>03</span><b>Create both exports</b></div><p>Relations processes long clips in balanced sections, reconnects them, and restores the source audio. This run uses {provider === "higgsfield-genjutsu" ? "your Higgsfield API balance" : "your fal.ai credits"}.</p><button className={styles.primaryButton} type="button" disabled={busy || !sourceUrl || !references.joe || !references.danda} onClick={() => void createTrendRemake()}>{stage === "processing" ? "Transforming Characters…" : stage === "assembling" ? "Building Final Videos…" : stage === "done" ? "Regenerate Trend Remake" : provider === "higgsfield-genjutsu" ? "Test Genjutsu with Joe + Danda" : "Create Joe + Danda Remake"}</button></section>
     </div>
     {progress && <p className={styles.notice} role="status">{progress}</p>}
     {error && <p className={styles.error} role="alert">{error}</p>}

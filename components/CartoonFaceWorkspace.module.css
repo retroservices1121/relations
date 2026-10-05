@@ -5,6 +5,15 @@
 .trendHeading h2{font-family:Georgia,serif;font-size:32px;letter-spacing:-.03em;margin:7px 0}
 .trendHeading p{margin:0;color:#766c61;font-size:13px;line-height:1.55}
 .trendSteps{display:grid;grid-template-columns:repeat(3,1fr);gap:13px;padding-top:18px;border-top:1px solid #e7ded3}
+.providerPicker{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.providerPicker button{display:grid;gap:4px;padding:14px 16px;border:1px solid #ded6c9;border-radius:14px;background:#f4eee5;color:#29251f;text-align:left;cursor:pointer}
+.providerPicker button:disabled{opacity:.58;cursor:not-allowed}
+.providerPicker span{color:#9b5d47;font-size:9px;font-weight:900;letter-spacing:.12em;text-transform:uppercase}
+.providerPicker strong{font-family:Georgia,serif;font-size:17px}
+.providerPicker small{color:#766c61;font-size:10px;line-height:1.4}
+.providerPicker .activeProvider{border-color:#20201d;background:#20201d;color:#fff;box-shadow:0 8px 22px rgba(32,32,29,.12)}
+.providerPicker .activeProvider span{color:#e39a89}
+.providerPicker .activeProvider small{color:#c9c1b7}
 .trendSteps .setupCard{background:#fffdf9}
 .trendSteps .primaryButton{width:100%;margin-top:auto}
 .uploadReady{display:block;margin-top:9px;color:#55765c;font-size:10px;font-weight:800}
@@ -91,7 +100,7 @@
 .exportRow>div{max-width:700px}
 .exportButton{background:#20201d}
 .hybridResult{max-width:560px;margin-top:20px;background:#f7fbf5;border-color:#b9c9b9}
-@media(max-width:900px){.setupGrid,.trendSteps{grid-template-columns:1fr}
+@media(max-width:900px){.setupGrid,.trendSteps,.providerPicker{grid-template-columns:1fr}
 .setupCard{min-height:0}
 .fileButton,.castButtons,.referenceList{margin-top:10px}
 .previewGrid{grid-template-columns:1fr}

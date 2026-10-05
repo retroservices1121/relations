@@ -6,7 +6,15 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { putR2Object, r2Configured } from "@/lib/r2";
-import { balancedTrendSegments, TREND_ENDPOINT, trendPrompt, type TrendJob, type TrendSegment } from "@/lib/trend-remake";
+import {
+  balancedTrendSegments,
+  GENJUTSU_ENDPOINT,
+  TREND_ENDPOINT,
+  trendPrompt,
+  type TrendJob,
+  type TrendProvider,
+  type TrendSegment,
+} from "@/lib/trend-remake";
 
 fal.config({ credentials: process.env.FAL_KEY });
 export const runtime = "nodejs";
@@ -14,9 +22,27 @@ export const maxDuration = 300;
 
 const execFileAsync = promisify(execFile);
 const ffmpeg = process.env.FFMPEG_PATH || "ffmpeg";
+const HIGGSFIELD_BASE_URL = "https://api.higgsfield.ai";
 
 function clean(value: string) { return value.replace(/[^a-zA-Z0-9-_]/g, "-"); }
 function validUrl(value: unknown): value is string { return typeof value === "string" && /^https:\/\//.test(value); }
+function providerFrom(value: unknown): TrendProvider {
+  return value === "fal-minimax" ? "fal-minimax" : "higgsfield-genjutsu";
+}
+function higgsfieldCredentials() {
+  const singleKey = process.env.HF_API_KEY?.trim() || process.env.HF_CREDENTIALS?.trim();
+  if (singleKey) return singleKey;
+  const keyId = process.env.HF_API_KEY_ID?.trim();
+  const keySecret = process.env.HF_API_KEY_SECRET?.trim();
+  return keyId && keySecret ? `${keyId}:${keySecret}` : "";
+}
+async function parseHiggsfieldError(response: Response) {
+  const data = await response.json().catch(() => null) as { detail?: unknown; error?: unknown; message?: unknown } | null;
+  const detail = data?.detail ?? data?.error ?? data?.message;
+  if (typeof detail === "string") return detail;
+  try { return JSON.stringify(detail ?? data ?? { status: response.status }); }
+  catch { return `Higgsfield request failed with HTTP ${response.status}.`; }
+}
 function errorMessage(error: unknown, fallback: string) {
   if (!error || typeof error !== "object") return fallback;
   const value = error as { message?: unknown; body?: { detail?: unknown }; requestId?: unknown };
@@ -56,14 +82,25 @@ async function probe(file: string) {
 }
 function resultUrl(data: unknown) {
   if (!data || typeof data !== "object") return "";
-  const value = data as { video?: { url?: unknown }; videos?: Array<{ url?: unknown }>; video_url?: unknown };
+  const value = data as {
+    video?: { url?: unknown };
+    videos?: Array<{ url?: unknown }>;
+    video_url?: unknown;
+    output?: { video?: { url?: unknown }; video_url?: unknown; url?: unknown };
+  };
   if (typeof value.video?.url === "string") return value.video.url;
   if (typeof value.videos?.[0]?.url === "string") return value.videos[0].url;
-  return typeof value.video_url === "string" ? value.video_url : "";
+  if (typeof value.video_url === "string") return value.video_url;
+  if (typeof value.output?.video?.url === "string") return value.output.video.url;
+  if (typeof value.output?.video_url === "string") return value.output.video_url;
+  return typeof value.output?.url === "string" ? value.output.url : "";
 }
 
 async function start(body: Record<string, unknown>) {
   if (!r2Configured()) throw new Error("Trend remake requires Cloudflare R2 storage.");
+  const provider = providerFrom(body.provider);
+  if (provider === "higgsfield-genjutsu" && !higgsfieldCredentials()) throw new Error("HF_API_KEY is not configured on the server.");
+  if (provider === "fal-minimax" && !process.env.FAL_KEY) throw new Error("FAL_KEY is not configured on the server.");
   const videoUrl = validUrl(body.videoUrl) ? body.videoUrl : "";
   const refs = body.referenceUrls && typeof body.referenceUrls === "object" ? body.referenceUrls as Record<string, unknown> : {};
   const joe = validUrl(refs.joe) ? refs.joe : "";
@@ -77,46 +114,93 @@ async function start(body: Record<string, unknown>) {
     await download(videoUrl, source);
     const info = await probe(source);
     if (info.duration > 60.1) throw new Error("Keep trend remakes at 60 seconds or less.");
-    const plan = balancedTrendSegments(info.duration);
+    const plan = balancedTrendSegments(info.duration, provider === "higgsfield-genjutsu" ? 30 : 15);
     const jobKey = `${Date.now()}-${crypto.randomUUID()}`;
     const jobs: TrendJob[] = [];
     for (const part of plan) {
       const clip = path.join(dir, `segment-${part.index}.mp4`);
       await execFileAsync(ffmpeg, ["-y", "-ss", part.start.toFixed(3), "-i", source, "-t", part.duration.toFixed(3), "-map", "0:v:0", "-an", "-vf", "fps=30,format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-movflags", "+faststart", clip]);
       const stored = await putR2Object(`relations/trends/${clean(jobKey)}/source-${part.index}.mp4`, await fs.readFile(clip), "video/mp4");
-      const submission = await fal.queue.submit(TREND_ENDPOINT, { input: {
-        prompt: trendPrompt(),
-        reference_video_urls: [stored.url],
-        reference_image_urls: [joe, danda],
-        duration: Math.max(5, Math.min(15, Math.round(part.duration))),
-        aspect_ratio: "adaptive",
-        resolution: "768P",
-        prompt_expansion_mode: "disabled",
-        enable_safety_checker: true,
-        sync_mode: false,
-      }});
-      jobs.push({ requestId: submission.request_id, index: part.index, duration: part.duration });
+      if (provider === "higgsfield-genjutsu") {
+        const response = await fetch(`${HIGGSFIELD_BASE_URL}/${GENJUTSU_ENDPOINT}`, {
+          method: "POST",
+          headers: {
+            Authorization: `Key ${higgsfieldCredentials()}`,
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            prompt: trendPrompt(),
+            video_url: stored.url,
+            image_urls: [joe, danda],
+            resolution: "720p",
+          }),
+          cache: "no-store",
+        });
+        if (!response.ok) throw new Error(`Higgsfield: ${await parseHiggsfieldError(response)}`);
+        const submission = await response.json() as { request_id?: string };
+        if (!submission.request_id) throw new Error("Higgsfield accepted Genjutsu but returned no request_id.");
+        jobs.push({ requestId: `hf:${submission.request_id}`, index: part.index, duration: part.duration });
+      } else {
+        const submission = await fal.queue.submit(TREND_ENDPOINT, { input: {
+          prompt: trendPrompt(),
+          reference_video_urls: [stored.url],
+          reference_image_urls: [joe, danda],
+          duration: Math.max(5, Math.min(15, Math.round(part.duration))),
+          aspect_ratio: "adaptive",
+          resolution: "768P",
+          prompt_expansion_mode: "disabled",
+          enable_safety_checker: true,
+          sync_mode: false,
+        }});
+        jobs.push({ requestId: submission.request_id, index: part.index, duration: part.duration });
+      }
     }
-    return { jobs, sourceUrl: videoUrl, totalDuration: info.duration, width: info.width, height: info.height };
+    return { jobs, provider, sourceUrl: videoUrl, totalDuration: info.duration, width: info.width, height: info.height };
   } finally {
     await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined);
   }
 }
 
 async function status(request: Request) {
+  const provider = providerFrom(new URL(request.url).searchParams.get("provider"));
   const raw = new URL(request.url).searchParams.get("requestIds") || "";
   const requestIds = raw.split(",").map((value) => value.trim()).filter(Boolean).slice(0, 8);
   if (!requestIds.length) throw new Error("No trend-remake jobs were supplied.");
-  const segments: Array<{ requestId: string; status: string; url?: string }> = [];
+  const segments: Array<{ requestId: string; status: string; url?: string; error?: string }> = [];
   for (const requestId of requestIds) {
-    const state = await fal.queue.status(TREND_ENDPOINT, { requestId, logs: true });
-    if (String(state.status) === "FAILED") { segments.push({ requestId, status: "FAILED" }); continue; }
-    if (state.status !== "COMPLETED") { segments.push({ requestId, status: String(state.status) }); continue; }
-    const result = await fal.queue.result(TREND_ENDPOINT, { requestId });
-    const url = resultUrl(result.data);
-    segments.push(url ? { requestId, status: "COMPLETED", url } : { requestId, status: "FAILED" });
+    if (provider === "higgsfield-genjutsu" || requestId.startsWith("hf:")) {
+      const credentials = higgsfieldCredentials();
+      if (!credentials) throw new Error("HF_API_KEY is not configured on the server.");
+      const id = requestId.replace(/^hf:/, "");
+      const response = await fetch(`${HIGGSFIELD_BASE_URL}/requests/${encodeURIComponent(id)}/status`, {
+        headers: { Authorization: `Key ${credentials}`, Accept: "application/json" },
+        cache: "no-store",
+      });
+      if (!response.ok) throw new Error(`Higgsfield: ${await parseHiggsfieldError(response)}`);
+      const data = await response.json() as { status?: string; error?: { message?: string } | string };
+      const state = String(data.status || "queued").toLowerCase();
+      if (["failed", "nsfw", "canceled", "cancelled"].includes(state)) {
+        const detail = typeof data.error === "string" ? data.error : data.error?.message;
+        segments.push({ requestId, status: "FAILED", ...(detail ? { error: detail } : {}) });
+        continue;
+      }
+      if (state !== "completed") {
+        segments.push({ requestId, status: state === "in_progress" ? "IN_PROGRESS" : "IN_QUEUE" });
+        continue;
+      }
+      const url = resultUrl(data);
+      segments.push(url ? { requestId, status: "COMPLETED", url } : { requestId, status: "FAILED" });
+    } else {
+      const state = await fal.queue.status(TREND_ENDPOINT, { requestId, logs: true });
+      if (String(state.status) === "FAILED") { segments.push({ requestId, status: "FAILED" }); continue; }
+      if (state.status !== "COMPLETED") { segments.push({ requestId, status: String(state.status) }); continue; }
+      const result = await fal.queue.result(TREND_ENDPOINT, { requestId });
+      const url = resultUrl(result.data);
+      segments.push(url ? { requestId, status: "COMPLETED", url } : { requestId, status: "FAILED" });
+    }
   }
-  return { segments };
+  return { provider, segments };
 }
 
 async function finalize(body: Record<string, unknown>) {
@@ -164,7 +248,6 @@ async function finalize(body: Record<string, unknown>) {
 
 export async function POST(request: Request) {
   try {
-    if (!process.env.FAL_KEY) return NextResponse.json({ error: "FAL_KEY is not configured on the server." }, { status: 500 });
     const body = await request.json() as Record<string, unknown>;
     const action = body.action === "finalize" ? "finalize" : "start";
     return NextResponse.json(action === "start" ? await start(body) : await finalize(body));
@@ -175,7 +258,6 @@ export async function POST(request: Request) {
 
 export async function GET(request: Request) {
   try {
-    if (!process.env.FAL_KEY) return NextResponse.json({ error: "FAL_KEY is not configured on the server." }, { status: 500 });
     return NextResponse.json(await status(request));
   } catch (error) {
     return NextResponse.json({ error: errorMessage(error, "Could not check the trend remake.") }, { status: 500 });

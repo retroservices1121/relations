@@ -1,4 +1,7 @@
 export const TREND_ENDPOINT = "minimax/h3-max/reference-to-video";
+export const GENJUTSU_ENDPOINT = "higgsfiled/genjutsu/motion-transfer/v1.0";
+
+export type TrendProvider = "higgsfield-genjutsu" | "fal-minimax";
 
 export type TrendJob = { requestId: string; index: number; duration: number };
 export type TrendSegment = { url: string; index: number; duration: number };
