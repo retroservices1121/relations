@@ -13,6 +13,7 @@ import {
   KLING_O3_ENDPOINT,
   TREND_ENDPOINT,
   klingO3TrendPrompt,
+  shotAwareTrendSegments,
   trendPrompt,
   type TrendJob,
   type TrendProvider,
@@ -114,6 +115,11 @@ function resultUrl(data: unknown) {
   if (typeof value.output?.video_url === "string") return value.output.video_url;
   return typeof value.output?.url === "string" ? value.output.url : "";
 }
+async function detectSceneCuts(file: string) {
+  const args = ["-hide_banner", "-i", file, "-vf", "select=gt(scene\\,0.35),showinfo", "-an", "-f", "null", "-"];
+  const result = await execFileAsync(ffmpeg, args, { encoding: "utf8", maxBuffer: 10 * 1024 * 1024 }).catch((error: { stderr?: string }) => ({ stderr: error.stderr || "" }));
+  return Array.from((result.stderr || "").matchAll(/\bpts_time:([0-9.]+)/g), (match) => Number(match[1])).filter(Number.isFinite);
+}
 
 async function start(body: Record<string, unknown>) {
   if (!r2Configured()) throw new Error("Trend remake requires Cloudflare R2 storage.");
@@ -139,13 +145,18 @@ async function start(body: Record<string, unknown>) {
     const info = await probe(source);
     if (info.duration > 60.1) throw new Error("Keep trend remakes at 60 seconds or less.");
     const plan = provider === "fal-kling-o3"
-      ? compactTrendSegments(info.duration, 15, 3)
+      ? shotAwareTrendSegments(info.duration, await detectSceneCuts(source), 15, 12)
       : balancedTrendSegments(info.duration, provider === "higgsfield-genjutsu" ? 30 : 15);
     const jobKey = `${Date.now()}-${crypto.randomUUID()}`;
     const jobs: TrendJob[] = [];
     for (const part of plan) {
       const clip = path.join(dir, `segment-${part.index}.mp4`);
-      await execFileAsync(ffmpeg, ["-y", "-ss", part.start.toFixed(3), "-i", source, "-t", part.duration.toFixed(3), "-map", "0:v:0", "-an", "-sn", "-dn", "-map_metadata", "-1", "-vf", sourceVideoFilter(captionRegion), "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-movflags", "+faststart", clip]);
+      const providerDuration = provider === "fal-kling-o3" ? Math.max(3, part.duration) : part.duration;
+      const padDuration = Math.max(0, providerDuration - part.duration);
+      const videoFilter = provider === "fal-kling-o3"
+        ? `${sourceVideoFilter(captionRegion)},trim=duration=${part.duration.toFixed(3)},tpad=stop_mode=clone:stop_duration=${padDuration.toFixed(3)},trim=duration=${providerDuration.toFixed(3)},setpts=PTS-STARTPTS`
+        : sourceVideoFilter(captionRegion);
+      await execFileAsync(ffmpeg, ["-y", "-ss", part.start.toFixed(3), "-i", source, "-t", providerDuration.toFixed(3), "-map", "0:v:0", "-an", "-sn", "-dn", "-map_metadata", "-1", "-vf", videoFilter, "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-movflags", "+faststart", clip]);
       const clipInfo = await probe(clip);
       if (clipInfo.hasAudio) throw new Error("The silent provider input unexpectedly contains audio. Generation was stopped before billing.");
       const stored = await putR2Object(`relations/trends/${clean(jobKey)}/source-${part.index}.mp4`, await fs.readFile(clip), "video/mp4");
@@ -206,7 +217,7 @@ async function start(body: Record<string, unknown>) {
 async function status(request: Request) {
   const provider = providerFrom(new URL(request.url).searchParams.get("provider"));
   const raw = new URL(request.url).searchParams.get("requestIds") || "";
-  const requestIds = raw.split(",").map((value) => value.trim()).filter(Boolean).slice(0, 8);
+  const requestIds = raw.split(",").map((value) => value.trim()).filter(Boolean).slice(0, 12);
   if (!requestIds.length) throw new Error("No trend-remake jobs were supplied.");
   const segments: Array<{ requestId: string; status: string; url?: string; error?: string }> = [];
   for (const requestId of requestIds) {
