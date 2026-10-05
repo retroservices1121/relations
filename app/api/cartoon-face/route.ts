@@ -10,10 +10,12 @@ type CastKey = "joe" | "danda";
 function personDescription(key: CastKey) {
   return key === "joe" ? "the adult man in the source video" : "the adult woman in the source video";
 }
-function buildPrompt(cast: CastKey[]) {
-  const assignments=cast.map((key,index)=>`Replace the COMPLETE visible human head of ${personDescription(key)} with the exact locked Household Nonsense cartoon head from @Element${index+1}.`).join(" ");
+function buildPrompt(cast: CastKey[], targetDescriptions: Partial<Record<CastKey, string>>) {
+  const assignments=cast.map((key,index)=>`Replace the COMPLETE visible head of ${targetDescriptions[key] || personDescription(key)} with the exact locked Household Nonsense cartoon head from @Element${index+1}.`).join(" ");
+  const dandaLock=cast.includes("danda") ? "DANDA IDENTITY LOCK: Danda's complete long-hair silhouette is part of her locked head design. Replace all source or generated hair from scalp through the full visible length with Danda's exact long hair from her reference. Never shorten it, copy the performer's haircut, or create a merely similar woman." : "";
   return `HOUSEHOLD NONSENSE LOCKED CARTOON HEAD EDIT. ${assignments}
 CHARACTER IDENTITY IS ABSOLUTE. The supplied cartoon head is the character. Preserve its exact face shape, hairstyle, hair color, facial hair, eyes, nose, mouth design, proportions and illustration style. Never inherit or recreate the live actor's real hairstyle, facial features, facial hair, head shape or head appearance.
+${dandaLock}
 Replace the complete visible human head, not merely facial features. Keep the actor's real body, neck below the natural attachment point, clothing, hands, body shape, movement, props, environment, lighting, camera framing, timing and performance unchanged.
 Track each assigned person consistently for the entire clip. Never swap Joe and Danda. Preserve the source head position, turns, nods, tilts, scale and occlusion while keeping the locked cartoon head design stable frame to frame.
 Match expression and mouth movement to the source performance when possible without redesigning the character. Preserve the original audio exactly.
@@ -21,10 +23,10 @@ Do not cartoonize the body or environment. Do not add captions, logos, extra peo
 }
 export async function POST(request:Request){try{
  if(!process.env.FAL_KEY)return NextResponse.json({error:"FAL_KEY is not configured on the server."},{status:500});
- const body=await request.json();const videoUrl=typeof body.videoUrl==="string"?body.videoUrl.trim():"";const cast=Array.isArray(body.cast)?body.cast.filter((v:unknown):v is CastKey=>v==="joe"||v==="danda"):[];const referenceUrls=body.referenceUrls&&typeof body.referenceUrls==="object"?body.referenceUrls as Record<string,string>:{};
+ const body=await request.json();const videoUrl=typeof body.videoUrl==="string"?body.videoUrl.trim():"";const cast=Array.isArray(body.cast)?body.cast.filter((v:unknown):v is CastKey=>v==="joe"||v==="danda"):[];const referenceUrls=body.referenceUrls&&typeof body.referenceUrls==="object"?body.referenceUrls as Record<string,string>:{};const requestedTargets=body.targetDescriptions&&typeof body.targetDescriptions==="object"?body.targetDescriptions as Record<string,unknown>:{};const targetDescriptions:Partial<Record<CastKey,string>>={};for(const key of ["joe","danda"] as CastKey[]){const value=requestedTargets[key];if(typeof value==="string"&&value.trim())targetDescriptions[key]=value.trim().slice(0,400);}
  if(!videoUrl)return NextResponse.json({error:"Upload a recorded video first."},{status:400});if(!cast.length||cast.length>2)return NextResponse.json({error:"Choose Joe, Danda, or both."},{status:400});
  const elements=cast.map((key: CastKey)=>{const url=(referenceUrls[key]||"").trim();if(!url)throw Error(`The locked ${key==="joe"?"Joe":"Danda"} reference is missing.`);return{frontal_image_url:url,reference_image_urls:[url]};});
- const submission=await fal.queue.submit(ENDPOINT,{input:{prompt:buildPrompt(cast),video_url:videoUrl,keep_audio:true,elements}});
+ const submission=await fal.queue.submit(ENDPOINT,{input:{prompt:buildPrompt(cast,targetDescriptions),video_url:videoUrl,keep_audio:true,elements}});
  return NextResponse.json({requestId:submission.request_id,endpoint:ENDPOINT});
  }catch(error){return NextResponse.json({error:error instanceof Error?error.message:"Cartoon head generation failed."},{status:500});}}
 export async function GET(request:Request){try{

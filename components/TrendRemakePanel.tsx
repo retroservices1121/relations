@@ -8,6 +8,7 @@ type TrendProvider = "higgsfield-genjutsu" | "fal-minimax";
 type ReferenceKind = "head" | "body";
 type CaptionRegion = "none" | "top" | "middle" | "bottom";
 type Job = { requestId: string; index: number; duration: number };
+type Segment = { index: number; duration: number; url: string };
 type Stage = "idle" | "uploading" | "ready" | "processing" | "assembling" | "done" | "error";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -67,6 +68,40 @@ export default function TrendRemakePanel() {
     finally { setUploadingReference(null); }
   }
 
+  async function lockDandaIdentity(segments: Segment[]) {
+    const correctionJobs = await Promise.all(segments.map(async (segment) => {
+      const response = await fetch("/api/cartoon-face", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          videoUrl: segment.url,
+          cast: ["danda"],
+          referenceUrls: { danda: headReferences.danda },
+          targetDescriptions: {
+            danda: "Danda, the female cartoon character corresponding to the source woman (normally on the viewer's right), currently rendered with an incorrect shorter hairstyle",
+          },
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || typeof data.requestId !== "string") throw Error(data.error || "Could not start Danda's locked-head correction.");
+      return { ...segment, requestId: data.requestId };
+    }));
+
+    for (let attempt = 0; attempt < 240; attempt += 1) {
+      await sleep(5000);
+      const states = await Promise.all(correctionJobs.map(async (job) => {
+        const response = await fetch(`/api/cartoon-face?requestId=${encodeURIComponent(job.requestId)}`, { cache: "no-store" });
+        const data = await response.json();
+        if (!response.ok) throw Error(data.error || "Could not check Danda's locked-head correction.");
+        return { ...job, status: data.status as string, correctedUrl: typeof data.videoUrl === "string" ? data.videoUrl : "" };
+      }));
+      const completed = states.filter((item) => item.status === "COMPLETED" && item.correctedUrl).length;
+      setProgress(`Applying Danda's exact locked cartoon head: ${completed} of ${segments.length} sections ready…`);
+      if (completed === segments.length) return states.map(({ index, duration, correctedUrl }) => ({ index, duration, url: correctedUrl }));
+    }
+    throw Error("Danda's locked-head correction is still processing. Please try again shortly.");
+  }
+
   async function createTrendRemake() {
     if (!sourceUrl) { setError("Upload the trend video first."); return; }
     if (!references.joe || !references.danda) { setError("Upload the full-body Joe and Danda images first."); return; }
@@ -92,7 +127,11 @@ export default function TrendRemakePanel() {
       }
       if (finished.filter((item) => item.status === "COMPLETED" && item.url).length !== jobs.length) throw Error("The trend remake is still processing. Please try again shortly.");
       const byRequest = new Map(finished.map((item) => [item.requestId, item]));
-      const segments = jobs.map((job) => ({ index: job.index, duration: job.duration, url: byRequest.get(job.requestId)?.url || "" }));
+      let segments = jobs.map((job) => ({ index: job.index, duration: job.duration, url: byRequest.get(job.requestId)?.url || "" }));
+      if (provider === "higgsfield-genjutsu") {
+        setProgress("Genjutsu motion is ready. Starting Danda's dedicated locked-head pass…");
+        segments = await lockDandaIdentity(segments);
+      }
       setStage("assembling"); setProgress("Reconnecting the video and restoring the original audio…");
       const finalResponse = await fetch("/api/trend-remake", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "finalize", sourceUrl, segments, width: startData.width, height: startData.height }) });
       const finalData = await finalResponse.json();
@@ -108,13 +147,13 @@ export default function TrendRemakePanel() {
       <span className={`${styles.stateBadge} ${stage === "done" ? styles.stateReady : ""}`}>{stage === "done" ? "Remake ready" : busy ? "Processing" : "Setup required"}</span>
     </div>
     <div className={styles.providerPicker} role="radiogroup" aria-label="Trend remake provider">
-      <button type="button" role="radio" aria-checked={provider === "higgsfield-genjutsu"} className={provider === "higgsfield-genjutsu" ? styles.activeProvider : ""} disabled={busy} onClick={() => { setProvider("higgsfield-genjutsu"); setWithAudioUrl(""); setSilentUrl(""); setStage(sourceUrl ? "ready" : "idle"); }}><span>Recommended test</span><strong>Higgsfield Genjutsu</strong><small>Motion Transfer · 720p · approximately $0.68/sec</small></button>
+      <button type="button" role="radio" aria-checked={provider === "higgsfield-genjutsu"} className={provider === "higgsfield-genjutsu" ? styles.activeProvider : ""} disabled={busy} onClick={() => { setProvider("higgsfield-genjutsu"); setWithAudioUrl(""); setSilentUrl(""); setStage(sourceUrl ? "ready" : "idle"); }}><span>Recommended test</span><strong>Higgsfield Genjutsu</strong><small>Motion Transfer + dedicated Danda locked-head pass</small></button>
       <button type="button" role="radio" aria-checked={provider === "fal-minimax"} className={provider === "fal-minimax" ? styles.activeProvider : ""} disabled={busy} onClick={() => { setProvider("fal-minimax"); setWithAudioUrl(""); setSilentUrl(""); setStage(sourceUrl ? "ready" : "idle"); }}><span>Comparison route</span><strong>fal · MiniMax H3 Max</strong><small>Reference-to-video · 768p · existing workflow</small></button>
     </div>
     <div className={styles.trendSteps}>
       <section className={styles.setupCard}><div className={styles.stepTop}><span>01</span><b>Upload and clean source</b></div><p>Use the original MP4 or MOV. Videos from 4 to 60 seconds are supported.</p><label className={styles.fileButton}>{sourceUrl ? "Replace trend video" : "Choose trend video"}<input type="file" accept="video/mp4,video/quicktime,.mp4,.mov" disabled={busy} onChange={(event) => { void uploadVideo(event.target.files?.[0]); event.currentTarget.value = ""; }} /></label>{sourceUrl && <small className={styles.uploadReady}>✓ Trend video ready</small>}<label className={styles.captionControl}><span>Original caption location</span><select value={captionRegion} disabled={busy} onChange={(event) => setCaptionRegion(event.target.value as CaptionRegion)}><option value="middle">Middle — recommended for this test</option><option value="top">Top</option><option value="bottom">Bottom</option><option value="none">No source captions</option></select><small>Relations blurs this source band before Genjutsu so it cannot respell baked-in text.</small></label></section>
       <section className={styles.setupCard}><div className={styles.stepTop}><span>02</span><b>Lock heads and bodies</b></div><p>Close-up heads control identity and hair. Full-body images control clothing and proportions.</p><div className={styles.referenceList}>{(["joe", "danda"] as Character[]).map((character) => { const name = character === "joe" ? "Joe" : "Danda"; return <div className={styles.referenceGroup} key={character}>{(["head", "body"] as ReferenceKind[]).map((kind) => { const url = kind === "head" ? headReferences[character] : references[character]; const ready = Boolean(url); const uploadKey = `${character}-${kind}` as const; return <div className={styles.referenceRow} key={kind}>{ready ? <img src={url} alt={`${name} ${kind} reference`} /> : <span className={styles.referencePlaceholder}>{name[0]}</span>}<span className={styles.referenceName}><i className={ready ? styles.readyDot : styles.missingDot} />{name} {kind === "head" ? "locked head" : "full body"} <b>{ready ? "Ready" : "Missing"}</b></span><label className={styles.referenceButton}>{uploadingReference === uploadKey ? "Uploading…" : ready ? "Replace" : "Upload"}<input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy || uploadingReference !== null} onChange={(event) => { void uploadReference(character, kind, event.target.files?.[0]); event.currentTarget.value = ""; }} /></label></div>; })}</div>; })}</div></section>
-      <section className={styles.setupCard}><div className={styles.stepTop}><span>03</span><b>Create both exports</b></div><p>Relations processes long clips in balanced sections, reconnects them, and restores the source audio. This run uses {provider === "higgsfield-genjutsu" ? "your Higgsfield API balance" : "your fal.ai credits"}.</p><button className={styles.primaryButton} type="button" disabled={busy || !sourceUrl || !references.joe || !references.danda || (provider === "higgsfield-genjutsu" && (!headReferences.joe || !headReferences.danda))} onClick={() => void createTrendRemake()}>{stage === "processing" ? "Transforming Characters…" : stage === "assembling" ? "Building Final Videos…" : stage === "done" ? "Regenerate Trend Remake" : provider === "higgsfield-genjutsu" ? "Test Strong Identity Lock" : "Create Joe + Danda Remake"}</button></section>
+      <section className={styles.setupCard}><div className={styles.stepTop}><span>03</span><b>Create both exports</b></div><p>Relations processes long clips in balanced sections, applies Danda's locked head after Genjutsu, reconnects them, and restores the source audio. {provider === "higgsfield-genjutsu" ? "This route uses both your Higgsfield balance and fal.ai credits for the identity pass." : "This run uses your fal.ai credits."}</p><button className={styles.primaryButton} type="button" disabled={busy || !sourceUrl || !references.joe || !references.danda || (provider === "higgsfield-genjutsu" && (!headReferences.joe || !headReferences.danda))} onClick={() => void createTrendRemake()}>{stage === "processing" ? "Transforming Characters…" : stage === "assembling" ? "Building Final Videos…" : stage === "done" ? "Regenerate Trend Remake" : provider === "higgsfield-genjutsu" ? "Create with Danda Identity Lock" : "Create Joe + Danda Remake"}</button></section>
     </div>
     {progress && <p className={styles.notice} role="status">{progress}</p>}
     {error && <p className={styles.error} role="alert">{error}</p>}
