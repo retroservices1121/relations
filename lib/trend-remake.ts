@@ -1,6 +1,6 @@
 export const TREND_ENDPOINT = "minimax/h3-max/reference-to-video";
 export const GENJUTSU_ENDPOINT = "higgsfiled/genjutsu/motion-transfer/v1.0";
-export const KLING_O3_ENDPOINT = "fal-ai/kling-video/o3/standard/video-to-video/reference";
+export const KLING_O3_ENDPOINT = "fal-ai/kling-video/o3/standard/video-to-video/edit";
 
 export type TrendProvider = "higgsfield-genjutsu" | "fal-kling-o3" | "fal-minimax";
 
@@ -58,9 +58,10 @@ export function compactTrendSegments(duration: number, maximum = 15, minimum = 3
 }
 
 export function klingO3TrendPrompt() {
-  return `FULL CARTOON CHARACTER REPLACEMENT. @Video1 supplies motion, timing, choreography, staging, camera movement, cuts, composition and environment only.
+  return `PRECISE VIDEO EDIT. Preserve @Video1's existing environment, furniture, chairs, props, background, lighting, camera angle, framing, cuts, subject positions, timing and motion exactly. Do not redesign, move, replace or restyle anything except the two performers.
+MOUTHS CLOSED: Joe and Danda are silent for the entire clip. Their lips and jaws remain closed and still in every frame. They never speak, lip-sync, mumble, chew, open their mouths or form words. Preserve only eye, head and body movement from @Video1; create zero mouth animation.
 Replace the complete performer on the LEFT in @Video1 with Joe from @Element1. Replace the complete performer on the RIGHT in @Video1 with Danda from @Element2. Replace their entire visible bodies: head, hair, face, neck, torso, arms, hands, legs, feet and clothing. Leave no live-action human body part visible.
-@Element1 is the authoritative Joe design. Preserve his exact locked cartoon face, dark tousled hair, full beard, average build, black T-shirt, blue jeans and white sneakers. @Element2 is the authoritative Danda design. Preserve her exact locked cartoon face, softly curvy build, coral-red shirt, black ankle pants, white sneakers, gold hoop earrings and very long highlighted dark-brown hair extending toward mid-back. Danda's long-hair silhouette is identity-critical. Never copy or retain the source performer's shorter haircut.
-Keep Joe on the left and Danda on the right. Never swap their identities. Preserve the exact gestures, body positions, gaze direction, hand timing, footwork, spacing, framing, pacing and duration of @Video1. Preserve the existing set and props. Render Joe and Danda in the clean Household Nonsense hand-drawn 2D cartoon style from their elements, with stable faces, bodies, clothing, proportions, smooth outlines and solid colors across every frame.
-Do not add people, duplicate characters, invent props, change the set, add text, captions, subtitles, usernames, logos, watermarks or letter-like shapes. Reconstruct clean background anywhere source text was removed. Generate no dialogue, music or sound effects; Relations restores the original audio separately.`;
+@Element1 is the authoritative Joe design: exact locked cartoon face, dark tousled hair, full beard, average build, black T-shirt, blue jeans and white sneakers. @Element2 is the authoritative Danda design: exact locked cartoon face, softly curvy build, coral-red shirt, black ankle pants, white sneakers, gold hoop earrings and very long highlighted dark-brown hair extending toward mid-back. Never copy or retain the source performer's shorter haircut.
+Keep Joe on the left and Danda on the right without swapping identities. Render only the two replacement characters in the clean Household Nonsense hand-drawn 2D cartoon style from their elements, stable across every frame. The rocking chairs and every other non-character pixel must remain visually consistent with @Video1 from the beginning through the end.
+Do not create a new scene or shot. Do not change chairs, seating positions, posture, composition, room layout, perspective, background, props or camera. Do not add people, duplicate characters, add text, captions, subtitles, usernames, logos, watermarks or letter-like shapes. Generate no dialogue, music or sound effects; Relations restores the original audio separately.`;
 }

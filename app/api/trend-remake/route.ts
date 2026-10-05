@@ -177,8 +177,6 @@ async function start(body: Record<string, unknown>) {
             { frontal_image_url: dandaHead, reference_image_urls: [danda] },
           ],
           shot_type: "customize",
-          aspect_ratio: "auto",
-          duration: String(Math.max(3, Math.min(15, Math.ceil(part.duration)))) as "3" | "4" | "5" | "6" | "7" | "8" | "9" | "10" | "11" | "12" | "13" | "14" | "15",
         }});
         jobs.push({ requestId: `o3:${submission.request_id}`, index: part.index, duration: part.duration });
       } else {
