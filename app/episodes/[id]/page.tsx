@@ -12,6 +12,7 @@ import { newEpisodes } from "../../../data/newEpisodes";
 import { dbConfigured, getCustomEpisode, getSeries } from "../../../lib/db";
 import { householdNonsenseSeries } from "../../../lib/series";
 import styles from "./episode.module.css";
+import StudioShell from "../../../components/StudioShell";
 
 const episodes: Episode[] = [
   ...baseEpisodes.map((episode) => episodeOverrides[episode.id] ?? episode),
@@ -44,10 +45,10 @@ export default async function EpisodePage({ params }: { params: Promise<{ id: st
   const musical = musicalEpisodes.find((item) => item.id === id);
 
   return (
-    <div className={styles.shell}>
-      {musical ? <MusicalProductionWorkspace episode={musical} /> : <EpisodeWorkspace episode={episode} series={series || householdNonsenseSeries} />}
-      <FalCostDashboard episodeId={episode.id} />
-      <ProductionLibrary episodeId={episode.id} />
-    </div>
+    <StudioShell active="episodes" wide><div className={styles.shell}>
+        {musical ? <MusicalProductionWorkspace episode={musical} /> : <EpisodeWorkspace episode={episode} series={series || householdNonsenseSeries} />}
+        <FalCostDashboard episodeId={episode.id} />
+        <ProductionLibrary episodeId={episode.id} />
+      </div></StudioShell>
   );
 }

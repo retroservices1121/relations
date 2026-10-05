@@ -1,27 +1,12 @@
-import Link from "next/link";
 import CartoonFaceWorkspace from "@/components/CartoonFaceWorkspace";
 import TrendRemakePanel from "@/components/TrendRemakePanel";
+import StudioShell from "@/components/StudioShell";
 import styles from "./recorded.module.css";
 
 export default function RecordedVideoPage() {
   return (
-    <div className={styles.shell}>
-      <main className={styles.frame}>
-        <nav className={styles.topbar}>
-          <Link className={styles.brand} href="/studio">
-            <span className={styles.brandMark}>R</span>
-            <span className={styles.brandText}>
-              <strong>Relations</strong>
-              <small>Production Studio</small>
-            </span>
-          </Link>
-          <div className={styles.navLinks}>
-            <Link href="/studio">Episode board</Link>
-            <Link href="/music">Music</Link>
-            <span>Character Video</span>
-          </div>
-        </nav>
-
+    <StudioShell active="recorded" wide>
+      <div className={`${styles.shell} ${styles.frame}`}>
         <header className={styles.hero}>
           <div>
             <span className={styles.kicker}>Recorded performance workflow</span>
@@ -43,7 +28,7 @@ export default function RecordedVideoPage() {
 
         <TrendRemakePanel />
         <CartoonFaceWorkspace />
-      </main>
-    </div>
+      </div>
+    </StudioShell>
   );
 }
