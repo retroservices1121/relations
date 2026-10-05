@@ -1,7 +1,8 @@
 export const TREND_ENDPOINT = "minimax/h3-max/reference-to-video";
 export const GENJUTSU_ENDPOINT = "higgsfiled/genjutsu/motion-transfer/v1.0";
+export const KLING_O3_ENDPOINT = "fal-ai/kling-video/o3/standard/video-to-video/reference";
 
-export type TrendProvider = "higgsfield-genjutsu" | "fal-minimax";
+export type TrendProvider = "higgsfield-genjutsu" | "fal-kling-o3" | "fal-minimax";
 
 export type TrendJob = { requestId: string; index: number; duration: number };
 export type TrendSegment = { url: string; index: number; duration: number };
@@ -35,4 +36,31 @@ Render the entire scene in the same clean Household Nonsense hand-drawn 2D carto
   return `${base}
 
 SOURCE TEXT REMOVAL IS MANDATORY. Any words, captions, subtitles, handles, usernames, logos, interface marks or letter-like shapes from Video 1 are contamination, not scene content. Reconstruct clean background pixels where they appeared. Do not preserve, trace, imitate, translate, respell or replace any source text. Output zero readable or pseudo-readable text anywhere in the frame.`;
+}
+
+export function compactTrendSegments(duration: number, maximum = 15, minimum = 3) {
+  if (!Number.isFinite(duration) || duration < 4) {
+    throw new Error("Trend video must be at least 4 seconds long.");
+  }
+  const count = Math.ceil(duration / maximum);
+  let start = 0;
+  let remaining = duration;
+  return Array.from({ length: count }, (_, index) => {
+    const remainingParts = count - index - 1;
+    const partDuration = remainingParts === 0
+      ? remaining
+      : Math.min(maximum, remaining - minimum * remainingParts);
+    const part = { index, start, duration: partDuration };
+    start += partDuration;
+    remaining -= partDuration;
+    return part;
+  });
+}
+
+export function klingO3TrendPrompt() {
+  return `FULL CARTOON CHARACTER REPLACEMENT. @Video1 supplies motion, timing, choreography, staging, camera movement, cuts, composition and environment only.
+Replace the complete performer on the LEFT in @Video1 with Joe from @Element1. Replace the complete performer on the RIGHT in @Video1 with Danda from @Element2. Replace their entire visible bodies: head, hair, face, neck, torso, arms, hands, legs, feet and clothing. Leave no live-action human body part visible.
+@Element1 is the authoritative Joe design. Preserve his exact locked cartoon face, dark tousled hair, full beard, average build, black T-shirt, blue jeans and white sneakers. @Element2 is the authoritative Danda design. Preserve her exact locked cartoon face, softly curvy build, coral-red shirt, black ankle pants, white sneakers, gold hoop earrings and very long highlighted dark-brown hair extending toward mid-back. Danda's long-hair silhouette is identity-critical. Never copy or retain the source performer's shorter haircut.
+Keep Joe on the left and Danda on the right. Never swap their identities. Preserve the exact gestures, body positions, gaze direction, hand timing, footwork, spacing, framing, pacing and duration of @Video1. Preserve the existing set and props. Render Joe and Danda in the clean Household Nonsense hand-drawn 2D cartoon style from their elements, with stable faces, bodies, clothing, proportions, smooth outlines and solid colors across every frame.
+Do not add people, duplicate characters, invent props, change the set, add text, captions, subtitles, usernames, logos, watermarks or letter-like shapes. Reconstruct clean background anywhere source text was removed. Generate no dialogue, music or sound effects; Relations restores the original audio separately.`;
 }

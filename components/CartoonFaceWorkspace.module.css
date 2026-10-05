@@ -5,7 +5,7 @@
 .trendHeading h2{font-family:Georgia,serif;font-size:32px;letter-spacing:-.03em;margin:7px 0}
 .trendHeading p{margin:0;color:#766c61;font-size:13px;line-height:1.55}
 .trendSteps{display:grid;grid-template-columns:repeat(3,1fr);gap:13px;padding-top:18px;border-top:1px solid #e7ded3}
-.providerPicker{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.providerPicker{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
 .providerPicker button{display:grid;gap:4px;padding:14px 16px;border:1px solid #ded6c9;border-radius:14px;background:#f4eee5;color:#29251f;text-align:left;cursor:pointer}
 .providerPicker button:disabled{opacity:.58;cursor:not-allowed}
 .providerPicker span{color:#9b5d47;font-size:9px;font-weight:900;letter-spacing:.12em;text-transform:uppercase}

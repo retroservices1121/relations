@@ -8,8 +8,11 @@ import { promisify } from "node:util";
 import { putR2Object, r2Configured } from "@/lib/r2";
 import {
   balancedTrendSegments,
+  compactTrendSegments,
   GENJUTSU_ENDPOINT,
+  KLING_O3_ENDPOINT,
   TREND_ENDPOINT,
+  klingO3TrendPrompt,
   trendPrompt,
   type TrendJob,
   type TrendProvider,
@@ -27,7 +30,9 @@ const HIGGSFIELD_BASE_URL = "https://api.higgsfield.ai";
 function clean(value: string) { return value.replace(/[^a-zA-Z0-9-_]/g, "-"); }
 function validUrl(value: unknown): value is string { return typeof value === "string" && /^https:\/\//.test(value); }
 function providerFrom(value: unknown): TrendProvider {
-  return value === "fal-minimax" ? "fal-minimax" : "higgsfield-genjutsu";
+  if (value === "fal-minimax") return "fal-minimax";
+  if (value === "fal-kling-o3") return "fal-kling-o3";
+  return "higgsfield-genjutsu";
 }
 type CaptionRegion = "none" | "top" | "middle" | "bottom";
 function captionRegionFrom(value: unknown): CaptionRegion {
@@ -114,7 +119,7 @@ async function start(body: Record<string, unknown>) {
   if (!r2Configured()) throw new Error("Trend remake requires Cloudflare R2 storage.");
   const provider = providerFrom(body.provider);
   if (provider === "higgsfield-genjutsu" && !higgsfieldCredentials()) throw new Error("HF_API_KEY is not configured on the server.");
-  if (provider === "fal-minimax" && !process.env.FAL_KEY) throw new Error("FAL_KEY is not configured on the server.");
+  if (provider !== "higgsfield-genjutsu" && !process.env.FAL_KEY) throw new Error("FAL_KEY is not configured on the server.");
   const videoUrl = validUrl(body.videoUrl) ? body.videoUrl : "";
   const refs = body.referenceUrls && typeof body.referenceUrls === "object" ? body.referenceUrls as Record<string, unknown> : {};
   const headRefs = body.headReferenceUrls && typeof body.headReferenceUrls === "object" ? body.headReferenceUrls as Record<string, unknown> : {};
@@ -125,7 +130,7 @@ async function start(body: Record<string, unknown>) {
   const captionRegion = captionRegionFrom(body.captionRegion);
   if (!videoUrl) throw new Error("Upload the trend video first.");
   if (!joe || !danda) throw new Error("Upload the full-body Joe and Danda references first.");
-  if (provider === "higgsfield-genjutsu" && (!joeHead || !dandaHead)) throw new Error("Genjutsu needs the locked close-up Joe and Danda head references to preserve their exact cartoon identity.");
+  if ((provider === "higgsfield-genjutsu" || provider === "fal-kling-o3") && (!joeHead || !dandaHead)) throw new Error(`${provider === "fal-kling-o3" ? "Kling O3" : "Genjutsu"} needs the locked close-up Joe and Danda head references to preserve their exact cartoon identity.`);
 
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "relations-trend-start-"));
   try {
@@ -133,7 +138,9 @@ async function start(body: Record<string, unknown>) {
     await download(videoUrl, source);
     const info = await probe(source);
     if (info.duration > 60.1) throw new Error("Keep trend remakes at 60 seconds or less.");
-    const plan = balancedTrendSegments(info.duration, provider === "higgsfield-genjutsu" ? 30 : 15);
+    const plan = provider === "fal-kling-o3"
+      ? compactTrendSegments(info.duration, 15, 3)
+      : balancedTrendSegments(info.duration, provider === "higgsfield-genjutsu" ? 30 : 15);
     const jobKey = `${Date.now()}-${crypto.randomUUID()}`;
     const jobs: TrendJob[] = [];
     for (const part of plan) {
@@ -160,6 +167,20 @@ async function start(body: Record<string, unknown>) {
         const submission = await response.json() as { request_id?: string };
         if (!submission.request_id) throw new Error("Higgsfield accepted Genjutsu but returned no request_id.");
         jobs.push({ requestId: `hf:${submission.request_id}`, index: part.index, duration: part.duration });
+      } else if (provider === "fal-kling-o3") {
+        const submission = await fal.queue.submit(KLING_O3_ENDPOINT, { input: {
+          prompt: klingO3TrendPrompt(),
+          video_url: stored.url,
+          keep_audio: false,
+          elements: [
+            { frontal_image_url: joeHead, reference_image_urls: [joe] },
+            { frontal_image_url: dandaHead, reference_image_urls: [danda] },
+          ],
+          shot_type: "customize",
+          aspect_ratio: "auto",
+          duration: String(Math.max(3, Math.min(15, Math.ceil(part.duration)))) as "3" | "4" | "5" | "6" | "7" | "8" | "9" | "10" | "11" | "12" | "13" | "14" | "15",
+        }});
+        jobs.push({ requestId: `o3:${submission.request_id}`, index: part.index, duration: part.duration });
       } else {
         const submission = await fal.queue.submit(TREND_ENDPOINT, { input: {
           prompt: trendPrompt(),
@@ -211,10 +232,13 @@ async function status(request: Request) {
       const url = resultUrl(data);
       segments.push(url ? { requestId, status: "COMPLETED", url } : { requestId, status: "FAILED" });
     } else {
-      const state = await fal.queue.status(TREND_ENDPOINT, { requestId, logs: true });
+      const isKlingO3 = provider === "fal-kling-o3" || requestId.startsWith("o3:");
+      const endpoint = isKlingO3 ? KLING_O3_ENDPOINT : TREND_ENDPOINT;
+      const falRequestId = requestId.replace(/^o3:/, "");
+      const state = await fal.queue.status(endpoint, { requestId: falRequestId, logs: true });
       if (String(state.status) === "FAILED") { segments.push({ requestId, status: "FAILED" }); continue; }
       if (state.status !== "COMPLETED") { segments.push({ requestId, status: String(state.status) }); continue; }
-      const result = await fal.queue.result(TREND_ENDPOINT, { requestId });
+      const result = await fal.queue.result(endpoint, { requestId: falRequestId });
       const url = resultUrl(result.data);
       segments.push(url ? { requestId, status: "COMPLETED", url } : { requestId, status: "FAILED" });
     }
