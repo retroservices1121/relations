@@ -145,7 +145,9 @@ async function start(body: Record<string, unknown>) {
     const jobs: TrendJob[] = [];
     for (const part of plan) {
       const clip = path.join(dir, `segment-${part.index}.mp4`);
-      await execFileAsync(ffmpeg, ["-y", "-ss", part.start.toFixed(3), "-i", source, "-t", part.duration.toFixed(3), "-map", "0:v:0", "-an", "-vf", sourceVideoFilter(captionRegion), "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-movflags", "+faststart", clip]);
+      await execFileAsync(ffmpeg, ["-y", "-ss", part.start.toFixed(3), "-i", source, "-t", part.duration.toFixed(3), "-map", "0:v:0", "-an", "-sn", "-dn", "-map_metadata", "-1", "-vf", sourceVideoFilter(captionRegion), "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-movflags", "+faststart", clip]);
+      const clipInfo = await probe(clip);
+      if (clipInfo.hasAudio) throw new Error("The silent provider input unexpectedly contains audio. Generation was stopped before billing.");
       const stored = await putR2Object(`relations/trends/${clean(jobKey)}/source-${part.index}.mp4`, await fs.readFile(clip), "video/mp4");
       if (provider === "higgsfield-genjutsu") {
         const response = await fetch(`${HIGGSFIELD_BASE_URL}/${GENJUTSU_ENDPOINT}`, {
@@ -171,6 +173,7 @@ async function start(body: Record<string, unknown>) {
         const submission = await fal.queue.submit(KLING_O3_ENDPOINT, { input: {
           prompt: klingO3TrendPrompt(),
           video_url: stored.url,
+          image_urls: [joeHead, dandaHead],
           keep_audio: false,
           elements: [
             { frontal_image_url: joeHead, reference_image_urls: [joe] },
