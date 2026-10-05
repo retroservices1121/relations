@@ -29,6 +29,20 @@ function validUrl(value: unknown): value is string { return typeof value === "st
 function providerFrom(value: unknown): TrendProvider {
   return value === "fal-minimax" ? "fal-minimax" : "higgsfield-genjutsu";
 }
+type CaptionRegion = "none" | "top" | "middle" | "bottom";
+function captionRegionFrom(value: unknown): CaptionRegion {
+  return value === "top" || value === "middle" || value === "bottom" ? value : "none";
+}
+function sourceVideoFilter(region: CaptionRegion) {
+  if (region === "none") return "fps=30,format=yuv420p";
+  const band = region === "top"
+    ? { start: 0.02, height: 0.28 }
+    : region === "middle"
+      ? { start: 0.28, height: 0.44 }
+      : { start: 0.58, height: 0.38 };
+  const height = `trunc(ih*${band.height}/2)*2`;
+  return `split=2[base][blur];[blur]crop=iw:${height}:0:ih*${band.start},boxblur=12:2[patch];[base][patch]overlay=0:main_h*${band.start},fps=30,format=yuv420p`;
+}
 function higgsfieldCredentials() {
   const singleKey = process.env.HF_API_KEY?.trim() || process.env.HF_CREDENTIALS?.trim();
   if (singleKey) return singleKey;
@@ -103,10 +117,15 @@ async function start(body: Record<string, unknown>) {
   if (provider === "fal-minimax" && !process.env.FAL_KEY) throw new Error("FAL_KEY is not configured on the server.");
   const videoUrl = validUrl(body.videoUrl) ? body.videoUrl : "";
   const refs = body.referenceUrls && typeof body.referenceUrls === "object" ? body.referenceUrls as Record<string, unknown> : {};
+  const headRefs = body.headReferenceUrls && typeof body.headReferenceUrls === "object" ? body.headReferenceUrls as Record<string, unknown> : {};
   const joe = validUrl(refs.joe) ? refs.joe : "";
   const danda = validUrl(refs.danda) ? refs.danda : "";
+  const joeHead = validUrl(headRefs.joe) ? headRefs.joe : "";
+  const dandaHead = validUrl(headRefs.danda) ? headRefs.danda : "";
+  const captionRegion = captionRegionFrom(body.captionRegion);
   if (!videoUrl) throw new Error("Upload the trend video first.");
   if (!joe || !danda) throw new Error("Upload the full-body Joe and Danda references first.");
+  if (provider === "higgsfield-genjutsu" && (!joeHead || !dandaHead)) throw new Error("Genjutsu needs the locked close-up Joe and Danda head references to preserve their exact cartoon identity.");
 
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "relations-trend-start-"));
   try {
@@ -119,7 +138,7 @@ async function start(body: Record<string, unknown>) {
     const jobs: TrendJob[] = [];
     for (const part of plan) {
       const clip = path.join(dir, `segment-${part.index}.mp4`);
-      await execFileAsync(ffmpeg, ["-y", "-ss", part.start.toFixed(3), "-i", source, "-t", part.duration.toFixed(3), "-map", "0:v:0", "-an", "-vf", "fps=30,format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-movflags", "+faststart", clip]);
+      await execFileAsync(ffmpeg, ["-y", "-ss", part.start.toFixed(3), "-i", source, "-t", part.duration.toFixed(3), "-map", "0:v:0", "-an", "-vf", sourceVideoFilter(captionRegion), "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-movflags", "+faststart", clip]);
       const stored = await putR2Object(`relations/trends/${clean(jobKey)}/source-${part.index}.mp4`, await fs.readFile(clip), "video/mp4");
       if (provider === "higgsfield-genjutsu") {
         const response = await fetch(`${HIGGSFIELD_BASE_URL}/${GENJUTSU_ENDPOINT}`, {
@@ -130,9 +149,9 @@ async function start(body: Record<string, unknown>) {
             Accept: "application/json",
           },
           body: JSON.stringify({
-            prompt: trendPrompt(),
+            prompt: trendPrompt(true),
             video_url: stored.url,
-            image_urls: [joe, danda],
+            image_urls: [joeHead, joe, dandaHead, danda],
             resolution: "720p",
           }),
           cache: "no-store",

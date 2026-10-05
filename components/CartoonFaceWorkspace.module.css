@@ -17,6 +17,9 @@
 .trendSteps .setupCard{background:#fffdf9}
 .trendSteps .primaryButton{width:100%;margin-top:auto}
 .uploadReady{display:block;margin-top:9px;color:#55765c;font-size:10px;font-weight:800}
+.captionControl{display:grid;gap:6px;margin-top:16px;padding-top:14px;border-top:1px solid #e7ded3;color:#625a51;font-size:10px;font-weight:850}
+.captionControl select{width:100%;padding:9px 10px;border:1px solid #d7cdc0;border-radius:9px;background:#fff;color:#29251f;font:inherit}
+.captionControl small{color:#887d70;font-size:9px;font-weight:650;line-height:1.4}
 .resultLinks{display:flex;flex-wrap:wrap;gap:14px;margin-top:12px}
 .resultLinks a{color:#6e5041;font-size:11px;font-weight:800}
 .workspaceHead{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;padding:26px 28px;background:#fffaf3;border:1px solid #ded6c9;border-radius:22px;box-shadow:0 14px 40px rgba(62,46,27,.05)}
@@ -47,6 +50,7 @@
 .castButtons small{margin-top:2px;color:#84796e;font-size:9px}
 .castButtons i{font-style:normal;font-weight:900;color:#55765c}
 .referenceList{display:grid;gap:8px;margin-top:auto}
+.referenceGroup{display:grid;gap:6px;padding:7px;border:1px solid #e7ded3;border-radius:11px;background:#fffaf3}
 .referenceRow{display:grid;grid-template-columns:38px minmax(0,1fr) auto;align-items:center;gap:9px;padding:8px;border-radius:11px;background:#f7f1e8;color:#665d54;font-size:11px}
 .referenceRow>img,.referencePlaceholder{width:38px;height:38px;border-radius:9px;border:1px solid #d8cec0;object-fit:cover}
 .referencePlaceholder{display:grid;place-items:center;background:#e9dfd4;color:#8e7f72;font-family:Georgia,serif;font-weight:800}
