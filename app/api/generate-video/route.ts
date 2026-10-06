@@ -8,6 +8,8 @@ fal.config({ credentials: process.env.FAL_KEY });
 const HIGGSFIELD_MODEL = "higgsfield-seedance-2.5";
 const HIGGSFIELD_ENDPOINT = "bytedance/seedance-2.5/reference-to-video";
 const HIGGSFIELD_BASE_URL = "https://api.higgsfield.ai";
+const EFFICIENT_MODEL = "efficient-h3-turbo";
+const EFFICIENT_ENDPOINT = "minimax/h3-max-turbo/image-to-video";
 
 const HOUSEHOLD_VISUAL_DIRECTION = `FINAL VISUAL DIRECTION OVERRIDES ANY CONFLICTING STYLE LANGUAGE BELOW.
 
@@ -90,6 +92,7 @@ function isHiggsfieldModel(model: string) {
 }
 
 function falEndpointFor(model: string) {
+  if (model === EFFICIENT_MODEL) return EFFICIENT_ENDPOINT;
   return model === "seedance-standard"
     ? "bytedance/seedance-2.0/reference-to-video"
     : "bytedance/seedance-2.0/fast/reference-to-video";
@@ -169,6 +172,8 @@ export async function POST(request: Request) {
       audioMode = "default",
       duration = 5,
       model = "seedance-fast",
+      anchorImageUrl = "",
+      scenePrompt = "",
     } = body;
     const selectedSeries = seriesId === "household-nonsense" ? null : await getSeries(seriesId);
     if (seriesId !== "household-nonsense" && !selectedSeries) throw new Error("Series not found.");
@@ -216,6 +221,9 @@ export async function POST(request: Request) {
         { status: 500 },
       );
 
+    const usingEfficientFlow = model === EFFICIENT_MODEL;
+    if (usingEfficientFlow && (typeof anchorImageUrl !== "string" || !/^https?:\/\//.test(anchorImageUrl)))
+      return NextResponse.json({ error: "Build the stable scene frame before animating this scene." }, { status: 400 });
     const maxDuration = usingHiggsfield ? 30 : 15;
     const safeDuration = Math.max(
       4,
@@ -289,6 +297,26 @@ export async function POST(request: Request) {
     }
 
     const endpoint = falEndpointFor(model);
+    if (usingEfficientFlow) {
+      const submission = await fal.queue.submit(endpoint, {
+        input: {
+          image_url: anchorImageUrl,
+          prompt: `${visualDirection}\n\nMOTION PASS: Treat the supplied image as the exact first frame. Preserve its characters, wardrobe, location, framing, lighting, furniture, and props. Animate only the actions explicitly requested. Keep the camera stable unless the scene instruction requires a simple move. No scene change, location change, character redesign, extra people, captions, or readable text. Keep all mouths closed and visually still unless the scene explicitly requires mouth movement.\n\nSCENE ACTION:\n${typeof scenePrompt === "string" && scenePrompt.trim() ? scenePrompt : prompt}`,
+          resolution: "768P",
+          duration: safeDuration,
+          prompt_expansion_mode: "disabled",
+          enable_safety_checker: true,
+        },
+      });
+      await saveGenerationRequest({ requestId: submission.request_id, model, endpointId: endpoint, duration: safeDuration }).catch(() => undefined);
+      return NextResponse.json({
+        requestId: submission.request_id,
+        model,
+        provider: "fal",
+        status: "queued",
+        generationAudioDisabled: true,
+      });
+    }
     const submission = await fal.queue.submit(endpoint, {
       input: {
         prompt: lockedPrompt,
@@ -441,3 +469,4 @@ export async function GET(request: Request) {
     );
   }
 }
+
