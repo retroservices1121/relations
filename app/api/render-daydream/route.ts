@@ -12,22 +12,38 @@ export const maxDuration = 300;
 const execFileAsync = promisify(execFile);
 const ffmpegPath = process.env.FFMPEG_PATH || "ffmpeg";
 
+type HorizontalPosition = "left" | "center" | "right";
+type VerticalPosition = "top" | "middle" | "bottom";
+
 function allowedSource(value: string) {
   try {
     const url = new URL(value);
-    return url.protocol === "https:" && url.hostname === "v3b.fal.media";
+    const publicBase = (process.env.R2_PUBLIC_URL || "").replace(/\/$/, "");
+    return url.protocol === "https:" && (
+      url.hostname === "v3b.fal.media" ||
+      Boolean(publicBase && value.startsWith(`${publicBase}/relations/`))
+    );
   } catch {
     return false;
   }
 }
 
+function clamp(value: unknown, minimum: number, maximum: number, fallback: number) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.min(maximum, Math.max(minimum, number)) : fallback;
+}
+
+function filterPath(value: string) {
+  return value.replace(/\\/g, "/").replace(/:/g, "\\:").replace(/'/g, "\\'");
+}
+
 async function download(url: string, output: string) {
   const response = await fetch(url, { cache: "no-store" });
-  if (!response.ok) throw new Error(`Could not load generated media (${response.status}).`);
+  if (!response.ok) throw new Error(`Could not load layered media (${response.status}).`);
   await fs.writeFile(output, Buffer.from(await response.arrayBuffer()));
 }
 
-export async function GET(request: Request) {
+export async function POST(request: Request) {
   let workDir = "";
 
   try {
@@ -35,83 +51,67 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Cloudflare R2 is required to save the finished video." }, { status: 503 });
     }
 
-    const params = new URL(request.url).searchParams;
-    const baseUrl = params.get("base") || "";
-    const dancerUrl = params.get("dancer") || "";
-
+    const body = await request.json();
+    const baseUrl = typeof body.baseUrl === "string" ? body.baseUrl : "";
+    const dancerUrl = typeof body.dancerUrl === "string" ? body.dancerUrl : "";
     if (!allowedSource(baseUrl) || !allowedSource(dancerUrl)) {
-      return NextResponse.json({ error: "Valid fal video URLs are required." }, { status: 400 });
+      return NextResponse.json({ error: "Upload both videos through Relations before building the layered export." }, { status: 400 });
     }
 
-    workDir = await fs.mkdtemp(path.join(os.tmpdir(), "relations-daydream-"));
-    const basePath = path.join(workDir, "base.mp4");
-    const dancerPath = path.join(workDir, "dancer.mp4");
-    const outputPath = path.join(workDir, "household-nonsense-finance-daydream.mp4");
+    const duration = clamp(body.duration, 2, 15, 8);
+    const opacity = clamp(body.opacity, 0.2, 0.8, 0.42);
+    const scale = clamp(body.scale, 0.35, 0.9, 0.72);
+    const horizontal: HorizontalPosition = ["left", "center", "right"].includes(body.horizontal) ? body.horizontal : "center";
+    const vertical: VerticalPosition = ["top", "middle", "bottom"].includes(body.vertical) ? body.vertical : "middle";
+    const caption = typeof body.caption === "string"
+      ? body.caption.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "").slice(0, 120).trim()
+      : "";
 
-    await Promise.all([
-      download(baseUrl, basePath),
-      download(dancerUrl, dancerPath),
-    ]);
+    workDir = await fs.mkdtemp(path.join(os.tmpdir(), "relations-layered-"));
+    const basePath = path.join(workDir, "base.mp4");
+    const layerPath = path.join(workDir, "layer.mp4");
+    const captionPath = path.join(workDir, "caption.txt");
+    const outputPath = path.join(workDir, "relations-layered-social.mp4");
+
+    await Promise.all([download(baseUrl, basePath), download(dancerUrl, layerPath)]);
+    if (caption) await fs.writeFile(captionPath, caption, "utf8");
+
+    const layerWidth = Math.round((720 * scale) / 2) * 2;
+    const x = horizontal === "left" ? "42" : horizontal === "right" ? "W-w-42" : "(W-w)/2";
+    const y = vertical === "top" ? "180" : vertical === "bottom" ? "H-h-55" : "(H-h)/2+70";
+    const finalFilters = [`[base][ghost]overlay=x=${x}:y=${y}:shortest=1`];
+    if (caption) {
+      finalFilters.push(`drawtext=textfile='${filterPath(captionPath)}':fontcolor=white:fontsize=44:line_spacing=8:borderw=5:bordercolor=black:x=(w-text_w)/2:y=64`);
+    }
 
     const filter = [
       "[0:v]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,fps=30[base]",
-      "[1:v]scale=520:-2,fps=30,colorkey=0x00FF00:0.30:0.10,format=rgba,colorchannelmixer=aa=0.42[ghost]",
-      [
-        "[base][ghost]overlay=x=(W-w)/2:y=(H-h)/2+80:shortest=1",
-        "drawtext=text='My brain anytime he starts':fontcolor=white:fontsize=44:borderw=5:bordercolor=black:x=(w-text_w)/2:y=70",
-        "drawtext=text='talking about finances':fontcolor=white:fontsize=44:borderw=5:bordercolor=black:x=(w-text_w)/2:y=125[v]",
-      ].join(","),
+      `[1:v]scale=${layerWidth}:-2,fps=30,colorkey=0x00FF00:0.30:0.10,format=rgba,colorchannelmixer=aa=${opacity.toFixed(2)}[ghost]`,
+      `${finalFilters.join(",")}[v]`,
     ].join(";");
 
     await execFileAsync(ffmpegPath, [
-      "-y",
-      "-i",
-      basePath,
-      "-i",
-      dancerPath,
-      "-filter_complex",
-      filter,
-      "-map",
-      "[v]",
-      "-t",
-      "8",
-      "-an",
-      "-c:v",
-      "libx264",
-      "-preset",
-      "veryfast",
-      "-crf",
-      "19",
-      "-pix_fmt",
-      "yuv420p",
-      "-movflags",
-      "+faststart",
-      outputPath,
+      "-y", "-i", basePath, "-i", layerPath,
+      "-filter_complex", filter,
+      "-map", "[v]", "-t", String(duration), "-an",
+      "-c:v", "libx264", "-preset", "veryfast", "-crf", "19",
+      "-pix_fmt", "yuv420p", "-movflags", "+faststart", outputPath,
     ]);
 
     const stored = await putR2Object(
-      `relations/prototypes/finance-daydream-${Date.now()}.mp4`,
+      `relations/layered-social/final-${Date.now()}.mp4`,
       await fs.readFile(outputPath),
       "video/mp4",
     );
 
-    if (params.get("open") === "1") return NextResponse.redirect(stored.url);
-    return NextResponse.json({ url: stored.url, muted: true, duration: 8 });
+    return NextResponse.json({ url: stored.url, muted: true, duration, opacity, scale, horizontal, vertical });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Could not render the daydream video." },
+      { error: error instanceof Error ? error.message : "Could not render the layered social video." },
       { status: 500 },
     );
   } finally {
     if (workDir) await fs.rm(workDir, { recursive: true, force: true }).catch(() => undefined);
   }
-}
-
-export async function POST(request: Request) {
-  const body = await request.json();
-  const url = new URL(request.url);
-  url.searchParams.set("base", typeof body.baseUrl === "string" ? body.baseUrl : "");
-  url.searchParams.set("dancer", typeof body.dancerUrl === "string" ? body.dancerUrl : "");
-  return GET(new Request(url));
 }
 
