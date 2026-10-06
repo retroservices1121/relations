@@ -1,4 +1,11 @@
 .workspace{display:grid;gap:18px;padding-bottom:70px}
+.layeredPanel{display:grid;gap:18px;margin-bottom:22px;padding:28px;background:linear-gradient(145deg,#20211f,#161714);color:#f8f4ed;border:1px solid #343530;border-radius:24px;box-shadow:0 20px 55px rgba(28,29,26,.14)}
+.layeredPanel .trendHeading p{color:#bdb8af}.layeredPanel .stateBadge{background:#31332e;color:#dcd7cd}.layeredPanel .stateReady{background:#284332;color:#aee0ba}.layeredPanel .kicker{color:#ef9c84}
+.layeredSummary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.layeredSummary>div{display:grid;gap:4px;padding:16px 18px;background:#292a26;border:1px solid #3a3b36;border-radius:15px}.layeredSummary span{font-size:9px;font-weight:900;letter-spacing:.13em;text-transform:uppercase;color:#a9a49b}.layeredSummary strong{font-family:Georgia,serif;font-size:24px}.layeredSummary small{color:#aaa59c;font-size:10px;line-height:1.4}
+.layeredSteps{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.layeredPanel .setupCard{min-height:250px;background:#f9f4ec;color:#201d19;border-color:#3a3b36}.layeredPanel .setupCard>p{color:#756c61}.layeredPanel .fileButton{background:#20201d}
+.effectControls{display:grid;gap:9px;margin-top:auto}.effectControls label{display:grid;grid-template-columns:70px minmax(0,1fr) 42px;align-items:center;gap:8px;color:#6f665c;font-size:10px;font-weight:800}.effectControls input[type="number"],.effectControls select{width:100%;padding:8px;border:1px solid #d7cdc0;border-radius:8px;background:#fff}.effectControls input[type="range"]{width:100%;accent-color:#b45847}.effectControls small{text-align:right}.effectControls label:has(select){grid-template-columns:70px 1fr}.effectControls label:has(select) small{display:none}
+.captionComposer{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:18px;background:#292a26;border:1px solid #3a3b36;border-radius:17px}.captionComposer>label{display:grid;gap:8px}.captionComposer>label>span{font-size:10px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:#aaa59c}.captionComposer textarea{min-height:105px;resize:vertical;padding:13px;border:1px solid #454640;border-radius:11px;background:#1c1d1a;color:#fff;font:700 15px/1.45 Inter,ui-sans-serif,system-ui,sans-serif}.captionComposer>div{display:flex;flex-direction:column;align-items:flex-start;justify-content:center}.captionComposer b{font-size:13px}.captionComposer p{margin:6px 0 14px;color:#aaa59c;font-size:11px}.captionComposer .primaryButton{margin-top:auto}
+.layeredPreviewGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.layeredPanel .previewCard{background:#f9f4ec;color:#201d19}.layeredPanel .processedCard{background:#f3faf2}
 .trendPanel{display:grid;gap:18px;margin-bottom:22px;padding:26px 28px;background:#fffaf3;border:1px solid #d7c6b5;border-radius:22px;box-shadow:0 14px 40px rgba(62,46,27,.06)}
 .trendHeading{display:flex;align-items:flex-end;justify-content:space-between;gap:24px}
 .trendHeading>div{max-width:760px}
@@ -104,7 +111,8 @@
 .exportRow>div{max-width:700px}
 .exportButton{background:#20201d}
 .hybridResult{max-width:560px;margin-top:20px;background:#f7fbf5;border-color:#b9c9b9}
-@media(max-width:900px){.setupGrid,.trendSteps,.providerPicker{grid-template-columns:1fr}
+@media(max-width:900px){.setupGrid,.trendSteps,.providerPicker,.layeredSteps,.layeredPreviewGrid{grid-template-columns:1fr}
+.layeredSummary{grid-template-columns:1fr 1fr}.captionComposer{grid-template-columns:1fr}
 .setupCard{min-height:0}
 .fileButton,.castButtons,.referenceList{margin-top:10px}
 .previewGrid{grid-template-columns:1fr}
@@ -114,7 +122,8 @@
 .processRow,.exportRow{align-items:stretch;flex-direction:column}
 .primaryButton,.exportButton{width:100%}
 }
-@media(max-width:620px){.workspaceHead,.timelinePanel,.trendPanel{padding:20px}
+@media(max-width:620px){.workspaceHead,.timelinePanel,.trendPanel,.layeredPanel{padding:20px}
+.layeredSummary{grid-template-columns:1fr}
 .workspaceHead,.timelineHead,.trendHeading{align-items:flex-start;flex-direction:column}
 .workspace h2{font-size:27px}
 .stateBadge{align-self:flex-start}
@@ -126,3 +135,4 @@
 .previewCard video{aspect-ratio:9/14}
 }
 @media(max-width:620px){.referenceRow{grid-template-columns:34px 1fr}.referenceRow>img,.referencePlaceholder{width:34px;height:34px}.referenceButton{grid-column:2;width:max-content}}
+
