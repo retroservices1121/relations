@@ -16,6 +16,7 @@ type SceneState = {
   error?: string;
   requestId?: string;
   persisted?: boolean;
+  progressLabel?: string;
 };
 type OverlayPosition = "top" | "middle" | "bottom";
 type OverlayConfig = {
@@ -126,7 +127,7 @@ function ScenePreview({
 export default function EpisodeWorkspace({ episode, series = householdNonsenseSeries }: { episode: Episode; series?: SeriesConfig }) {
   const router = useRouter();
   const [referenceUrls, setReferenceUrls] = useState<Record<string, string>>({});
-  const [model, setModel] = useState("seedance-fast");
+  const [model, setModel] = useState("efficient-h3-turbo");
   const [audioMode, setAudioMode] = useState<"default" | "social-silent">("default");
   const [sceneStates, setSceneStates] = useState<Record<number, SceneState>>(
     {},
@@ -177,6 +178,10 @@ export default function EpisodeWorkspace({ episode, series = householdNonsenseSe
   const generationProvider = model.startsWith("higgsfield-")
     ? "Higgsfield"
     : "fal";
+  const efficientEpisodeEstimate = episode.scenes.reduce(
+    (total, scene) => total + 0.15 + Math.min(15, Math.max(4, scene.duration)) * 0.015,
+    0,
+  );
   function defaultOverlay(index: number): OverlayConfig {
     const scene = episode.scenes[index];
     return {
@@ -486,6 +491,35 @@ export default function EpisodeWorkspace({ episode, series = householdNonsenseSe
       "Generation is still running. Try Generate Scene again in a moment to start a new job.",
     );
   }
+  async function buildStableSceneFrame(input: {
+    index: number;
+    imageUrls: string[];
+    characterNames: string[];
+    prompt: string;
+  }) {
+    const response = await fetch("/api/generate-scene-anchor", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        imageUrls: input.imageUrls,
+        characterNames: input.characterNames,
+        prompt: input.prompt,
+        visualStyle: series.visualStyle,
+        aspectRatio: series.aspectRatio,
+      }),
+    });
+    const submission = await response.json();
+    if (!response.ok) throw new Error(submission.error || "Could not build the stable scene frame.");
+    setSceneStates((prev) => ({ ...prev, [input.index]: { ...prev[input.index], status: "generating", requestId: submission.requestId, progressLabel: "Building the locked storyboard frame…" } }));
+    for (let attempt = 0; attempt < 120; attempt += 1) {
+      await sleep(2500);
+      const statusResponse = await fetch(`/api/generate-scene-anchor?requestId=${encodeURIComponent(submission.requestId)}`, { cache: "no-store" });
+      const data = await statusResponse.json();
+      if (!statusResponse.ok) throw new Error(data.error || "Could not check the stable frame.");
+      if (data.status === "COMPLETED" && data.imageUrl) return data.imageUrl as string;
+    }
+    throw new Error("The stable scene frame is still running. Try this scene again in a moment.");
+  }
   function clearSavedFinal() {
     setFinalUrl("");
     setFinalError("");
@@ -540,6 +574,17 @@ export default function EpisodeWorkspace({ episode, series = householdNonsenseSe
       [index]: { ...prev[index], status: "queued", error: undefined },
     }));
     try {
+      const anchorImageUrl = selectedModel === "efficient-h3-turbo"
+        ? await buildStableSceneFrame({
+            index,
+            imageUrls,
+            characterNames: characterKeys.map((key) => series.characters.find((character) => character.key === key)?.name || key),
+            prompt,
+          })
+        : "";
+      if (anchorImageUrl) {
+        setSceneStates((prev) => ({ ...prev, [index]: { ...prev[index], status: "queued", progressLabel: "Animating the approved storyboard frame…" } }));
+      }
       const response = await fetch("/api/generate-video", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -555,6 +600,8 @@ export default function EpisodeWorkspace({ episode, series = householdNonsenseSe
           seriesVisualStyle: series.visualStyle,
           seriesRules: series.screenplayRules,
           audioMode,
+          anchorImageUrl,
+          scenePrompt: prompt,
           prompt: `Use only the approved recurring character assets required for this scene. ${referenceMap} Preserve each referenced identity exactly. Do not introduce a recurring character who is not listed for this scene. SERIES VISUAL STYLE: ${series.visualStyle} SERIES RULES: ${series.screenplayRules} ${series.aspectRatio === "16:9" ? "Landscape 16:9" : "Vertical 9:16"} series episode. Scene action: ${prompt}`,
         }),
       });
@@ -571,6 +618,7 @@ export default function EpisodeWorkspace({ episode, series = householdNonsenseSe
           status: "generating",
           requestId: data.requestId,
           error: undefined,
+          progressLabel: anchorImageUrl ? "Animating the approved storyboard frame…" : undefined,
         },
       }));
       await pollForResult(index, data.requestId, selectedModel);
@@ -1052,6 +1100,9 @@ export default function EpisodeWorkspace({ episode, series = householdNonsenseSe
               value={model}
               onChange={(event) => setModel(event.target.value)}
             >
+              <option value="efficient-h3-turbo">
+                Efficient Episode · stable frame + H3 Turbo
+              </option>
               <option value="higgsfield-seedance-2.5">
                 Higgsfield · Seedance 2.5
               </option>
@@ -1061,6 +1112,11 @@ export default function EpisodeWorkspace({ episode, series = householdNonsenseSe
               </option>
             </select>
           </label>
+          {model === "efficient-h3-turbo" && (
+            <p className={sceneStyles.costNote}>
+              Estimated episode generation: ${efficientEpisodeEstimate.toFixed(2)} for {episode.scenes.length} stable frames plus {episode.scenes.reduce((total, scene) => total + scene.duration, 0)} seconds of motion. Final captions, audio, and assembly use the existing Studio workflow.
+            </p>
+          )}
           {series.id === "household-nonsense" && (
             <label>
               Audio Mode
@@ -1252,7 +1308,7 @@ export default function EpisodeWorkspace({ episode, series = householdNonsenseSe
               )}
               {state.status === "generating" && (
                 <p className="statusText">
-                  Generating this scene on {generationProvider}… Your previous
+                  {state.progressLabel || `Generating this scene on ${generationProvider}…`} Your previous
                   version remains available until the replacement succeeds.
                 </p>
               )}
@@ -1475,3 +1531,4 @@ export default function EpisodeWorkspace({ episode, series = householdNonsenseSe
     </div>
   );
 }
+
