@@ -60,7 +60,7 @@ export default function NewEpisodeComposer({
       <div className={styles.composerIntro}>
         <span className={styles.kicker}>New {seriesTitle} production</span>
         <h2>What do you want to make?</h2>
-        <p>Plan a story episode, adapt a finished script, or create a promotional video for the series. Review every scene before generation credits are spent.</p>
+        <p>Plan a story episode, adapt a finished script, or create a promotional video. The default Efficient Episode workflow builds one stable frame per scene, animates only that shot, then assembles the full episode with your captions and audio.</p>
       </div>
 
       <div className={styles.modeCards} role="tablist" aria-label="Production type">
@@ -89,10 +89,11 @@ export default function NewEpisodeComposer({
       </div>
       <textarea className={styles.composerInput} value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder={mode === "story" ? "Example: Danda says she's only ordering one thing. Packages keep arriving until Joe is buried in boxes, and the last package contains one tiny hair clip." : mode === "script" ? "Paste your script or detailed story here. Include the beats you want preserved and we'll turn them into editable scenes." : "Example: Tease the blanket-stealing episode. Open on Joe confidently getting into bed, reveal Danda taking the whole blanket, and end on Joe's defeated stare with a follow prompt."} />
       <div className={styles.composerFoot}>
-        <span>Plan first · review every scene · generate when approved</span>
+        <span>Stable scene frames · short motion passes · one finished episode</span>
         <button disabled={busy || !prompt.trim()} onClick={createEpisode}>{busy ? "Building production plan…" : mode === "marketing" ? "Plan series promo →" : "Write story screenplay →"}</button>
       </div>
       {error && <p className={styles.composerError}>{error}</p>}
     </section>
   );
 }
+
