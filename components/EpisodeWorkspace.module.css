@@ -209,3 +209,14 @@
   padding: 10px 13px;
   font-weight: 700;
 }
+
+.costNote {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #edf4ea;
+  color: #47614c !important;
+  font-size: 11px !important;
+  line-height: 1.45;
+}
+
