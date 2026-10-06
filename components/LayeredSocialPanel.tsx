@@ -62,7 +62,7 @@ export default function LayeredSocialPanel() {
 
     <div className={styles.layeredSummary}>
       <div><span>Assembly cost</span><strong>$0</strong><small>Compositing, caption and silent export</small></div>
-      <div><span>8-second benchmark</span><strong>${planningEstimate.toFixed(2)}</strong><small>Planning example: one anchor + two short H3 layers</small></div>
+      <div><span>{duration}-second benchmark</span><strong>${planningEstimate.toFixed(2)}</strong><small>Planning example: one anchor + two short H3 layers</small></div>
       <div><span>Audio behavior</span><strong>Silent</strong><small>Add a licensed or trending song on Instagram</small></div>
     </div>
 
