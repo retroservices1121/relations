@@ -107,3 +107,11 @@ export async function GET(request: Request) {
   }
 }
 
+export async function POST(request: Request) {
+  const body = await request.json();
+  const url = new URL(request.url);
+  url.searchParams.set("base", typeof body.baseUrl === "string" ? body.baseUrl : "");
+  url.searchParams.set("dancer", typeof body.dancerUrl === "string" ? body.dancerUrl : "");
+  return GET(new Request(url));
+}
+
